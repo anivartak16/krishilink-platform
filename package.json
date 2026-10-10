@@ -1,0 +1,14 @@
+{
+  "name": "krishilink",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "mvn --file backend-spring/pom.xml spring-boot:run",
+    "server:spring": "mvn --file backend-spring/pom.xml spring-boot:run",
+    "build:spring": "mvn --file backend-spring/pom.xml clean package -DskipTests",
+    "client": "npm --prefix frontend run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

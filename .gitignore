@@ -1,0 +1,14 @@
+# Local configuration may contain database credentials and signing secrets.
+.env
+backend/.env
+frontend/.env
+
+# Dependencies and generated production output.
+node_modules/
+frontend/node_modules/
+frontend/dist/
+backend-spring/target/
+dist/
+coverage/
+scratch/
+mysql-data/

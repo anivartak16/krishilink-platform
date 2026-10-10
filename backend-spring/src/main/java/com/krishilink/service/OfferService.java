@@ -1,0 +1,165 @@
+package com.krishilink.service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.krishilink.dto.OfferDto;
+import com.krishilink.entity.*;
+import com.krishilink.enums.*;
+import com.krishilink.exception.BadRequestException;
+import com.krishilink.exception.ResourceNotFoundException;
+import com.krishilink.repository.*;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+@Service
+@RequiredArgsConstructor
+public class OfferService {
+
+    private final OfferRepository offerRepository;
+    private final LotRepository lotRepository;
+    private final TransactionRepository transactionRepository;
+    private final PaymentRepository paymentRepository;
+    private final NotificationRepository notificationRepository;
+    private final ObjectMapper objectMapper;
+
+    @Transactional
+    public Offer createOffer(User buyer, OfferDto dto) {
+        Lot lot = lotRepository.findById(dto.getLotId())
+                .orElseThrow(() -> new ResourceNotFoundException("Lot not found"));
+
+        if (lot.getRemainingQuantity() < dto.getQuantity()) {
+            throw new BadRequestException("Requested quantity exceeds available stock (" + lot.getRemainingQuantity() + " kg)");
+        }
+
+        double totalAmount = dto.getTotalAmount() != null ?
+                dto.getTotalAmount() : dto.getQuantity() * dto.getPricePerUnit();
+
+        Offer offer = Offer.builder()
+                .lot(lot)
+                .buyer(buyer)
+                .quantity(dto.getQuantity())
+                .pricePerUnit(dto.getPricePerUnit())
+                .totalAmount(totalAmount)
+                .message(dto.getMessage())
+                .validUntil(dto.getValidUntil())
+                .status(OfferStatus.PENDING)
+                .build();
+
+        offer = offerRepository.save(offer);
+
+        // Send notification to seller
+        Notification notification = Notification.builder()
+                .user(lot.getOwner())
+                .type("NEW_OFFER")
+                .message("New offer from " + buyer.getName() + " for " + dto.getQuantity() + " kg " + lot.getCommodity())
+                .read(false)
+                .build();
+        notificationRepository.save(notification);
+
+        return offer;
+    }
+
+    public List<Offer> getOffers(User user, String status) {
+        if (user.getRole() == Role.BUYER) {
+            return offerRepository.findByBuyer(user);
+        } else {
+            return offerRepository.findByLotOwner(user);
+        }
+    }
+
+    public Offer getOfferById(Long id) {
+        return offerRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Offer not found with id: " + id));
+    }
+
+    @Transactional
+    public Transaction acceptOffer(Long id, User user) {
+        Offer offer = getOfferById(id);
+        Lot lot = offer.getLot();
+
+        if (!lot.getOwner().getId().equals(user.getId()) && user.getRole() != Role.ADMIN) {
+            throw new BadRequestException("Only the seller can accept this offer");
+        }
+
+        if (offer.getStatus() != OfferStatus.PENDING) {
+            throw new BadRequestException("Offer is already " + offer.getStatus());
+        }
+
+        if (lot.getRemainingQuantity() < offer.getQuantity()) {
+            throw new BadRequestException("Not enough remaining quantity on lot to accept this offer");
+        }
+
+        // 1. Accept offer
+        offer.setStatus(OfferStatus.ACCEPTED);
+        offerRepository.save(offer);
+
+        // 2. Decrement lot remaining quantity
+        double newRemaining = lot.getRemainingQuantity() - offer.getQuantity();
+        lot.setRemainingQuantity(newRemaining);
+        if (newRemaining <= 0) {
+            lot.setStatus(LotStatus.SOLD);
+        } else {
+            lot.setStatus(LotStatus.PARTIALLY_SOLD);
+        }
+        lotRepository.save(lot);
+
+        // 3. Create Transaction
+        String eventsJson = "";
+        try {
+            eventsJson = objectMapper.writeValueAsString(List.of(
+                    Map.of("status", "CREATED", "note", "Offer accepted and trade created", "at", LocalDateTime.now().toString())
+            ));
+        } catch (Exception ignored) {}
+
+        Transaction tx = Transaction.builder()
+                .offer(offer)
+                .lot(lot)
+                .buyer(offer.getBuyer())
+                .seller(lot.getOwner())
+                .quantity(offer.getQuantity())
+                .amount(offer.getTotalAmount())
+                .status(TransactionStatus.CREATED)
+                .eventsJson(eventsJson)
+                .build();
+
+        tx = transactionRepository.save(tx);
+
+        // 4. Create Payment record
+        Payment payment = Payment.builder()
+                .transaction(tx)
+                .amount(offer.getTotalAmount())
+                .paymentMethod("Bank Transfer")
+                .status(PaymentStatus.PROCESSING)
+                .remarks("Escrow release after delivery")
+                .build();
+        paymentRepository.save(payment);
+
+        // 5. Notifications
+        Notification buyerNotif = Notification.builder()
+                .user(offer.getBuyer())
+                .type("OFFER_ACCEPTED")
+                .message("Your offer for " + offer.getQuantity() + " kg " + lot.getCommodity() + " was accepted!")
+                .read(false)
+                .build();
+        notificationRepository.save(buyerNotif);
+
+        return tx;
+    }
+
+    @Transactional
+    public Offer rejectOffer(Long id, User user) {
+        Offer offer = getOfferById(id);
+        Lot lot = offer.getLot();
+
+        if (!lot.getOwner().getId().equals(user.getId()) && user.getRole() != Role.ADMIN) {
+            throw new BadRequestException("Only the seller can reject this offer");
+        }
+
+        offer.setStatus(OfferStatus.REJECTED);
+        return offerRepository.save(offer);
+    }
+}
