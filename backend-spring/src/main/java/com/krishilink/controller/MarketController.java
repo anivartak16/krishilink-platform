@@ -20,7 +20,7 @@ public class MarketController {
     private final IntelligenceService intelligenceService;
     private final MarketRepository marketRepository;
 
-    @GetMapping
+    @GetMapping({"", "/nearby"})
     public ResponseEntity<ApiResponse<List<MarketRecommendationDto>>> getMarkets(
             @RequestParam(defaultValue = "Wheat") String commodity,
             @RequestParam(required = false) String district,

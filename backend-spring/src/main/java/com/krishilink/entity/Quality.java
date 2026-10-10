@@ -27,6 +27,15 @@ public class Quality {
     private Double foreignMatter;
     private Double damagedPercentage;
     private String certification;
+    private String defects;
+    @Column(columnDefinition = "TEXT")
+    private String inspectionNotes;
+    @Column(columnDefinition = "LONGTEXT")
+    private String grainImage;
+    @Builder.Default
+    private String inspectionStatus = "PENDING";
+    private LocalDateTime inspectedAt;
+    private String inspectedByName;
 
     @CreationTimestamp
     @Column(updatable = false)

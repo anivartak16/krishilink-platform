@@ -214,6 +214,11 @@ public class AuthService {
         return sanitized;
     }
 
+    @Transactional
+    public User saveVerifiedUser(User user) {
+        return userRepository.save(user);
+    }
+
     public Map<String, Object> sanitizeUser(User u) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", u.getId());

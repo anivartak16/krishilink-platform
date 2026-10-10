@@ -27,8 +27,12 @@ public class LotController {
             @RequestParam(required = false) Double minPrice,
             @RequestParam(required = false) Double maxPrice,
             @RequestParam(required = false) Long owner,
-            @RequestParam(required = false) String search) {
-        List<Lot> lots = lotService.getLots(commodity, status, farmingType, minPrice, maxPrice, owner, search);
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "false") boolean mine,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        List<Lot> lots = mine && principal != null
+                ? lotService.getLotsForOwner(principal.getUser())
+                : lotService.getLots(commodity, status, farmingType, minPrice, maxPrice, owner, search);
         return ResponseEntity.ok(ApiResponse.ok(lots));
     }
 
@@ -60,5 +64,21 @@ public class LotController {
             @AuthenticationPrincipal UserPrincipal principal) {
         lotService.deleteLot(id, principal.getUser());
         return ResponseEntity.ok(ApiResponse.ok("Lot cancelled successfully"));
+    }
+
+    @PostMapping("/{id}/publish")
+    public ResponseEntity<ApiResponse<Lot>> publish(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                lotService.publishLot(id, principal.getUser()), "Lot published successfully"));
+    }
+
+    @PostMapping("/{id}/verify-request")
+    public ResponseEntity<ApiResponse<Lot>> requestVerification(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                lotService.requestVerification(id, principal.getUser()), "Verification request submitted"));
     }
 }

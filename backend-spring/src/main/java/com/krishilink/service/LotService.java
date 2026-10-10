@@ -134,6 +134,10 @@ public class LotService {
         return lotRepository.findAll(spec);
     }
 
+    public List<Lot> getLotsForOwner(User owner) {
+        return lotRepository.findByOwner(owner);
+    }
+
     public Lot getLotById(Long id) {
         return lotRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lot not found with id: " + id));
@@ -164,5 +168,34 @@ public class LotService {
         }
         lot.setStatus(LotStatus.CANCELLED);
         lotRepository.save(lot);
+    }
+
+    @Transactional
+    public Lot publishLot(Long id, User user) {
+        Lot lot = getLotById(id);
+        assertCanManage(lot, user);
+        if (lot.getStatus() != LotStatus.VERIFIED && lot.getStatus() != LotStatus.AVAILABLE) {
+            throw new BadRequestException("Lot must pass quality verification before publishing");
+        }
+        lot.setStatus(LotStatus.AVAILABLE);
+        return lotRepository.save(lot);
+    }
+
+    @Transactional
+    public Lot requestVerification(Long id, User user) {
+        Lot lot = getLotById(id);
+        assertCanManage(lot, user);
+        lot.setStatus(LotStatus.PENDING_VERIFICATION);
+        if (lot.getQuality() != null) {
+            lot.getQuality().setInspectionStatus("PENDING");
+            qualityRepository.save(lot.getQuality());
+        }
+        return lotRepository.save(lot);
+    }
+
+    private void assertCanManage(Lot lot, User user) {
+        if (user == null || (!lot.getOwner().getId().equals(user.getId()) && user.getRole() != Role.ADMIN)) {
+            throw new BadRequestException("Unauthorized to manage this lot");
+        }
     }
 }

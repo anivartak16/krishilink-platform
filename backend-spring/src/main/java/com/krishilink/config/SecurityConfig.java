@@ -107,6 +107,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/lots/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/demands/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/predictions/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/storage/bookings", "/api/logistics/bookings").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/storage/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/logistics/**").permitAll()
                         .requestMatchers("/api/chat/**").permitAll()
