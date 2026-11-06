@@ -32,6 +32,14 @@ spring:
           uri: lb://USER-SERVICE
           predicates:
             - Path=/api/fpo/**
+        - id: user-service-buyers
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/api/buyers/**
+        - id: user-service-users
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/api/users/**
         - id: lot-service-lots
           uri: lb://LOT-SERVICE
           predicates:

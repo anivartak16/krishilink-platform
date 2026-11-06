@@ -1,39 +1,60 @@
 package com.krishilink.marketservice.controller;
 
 import com.krishilink.marketservice.dto.ApiResponse;
+import com.krishilink.marketservice.dto.PriceDtos.*;
+import com.krishilink.marketservice.entity.MarketPrice;
+import com.krishilink.marketservice.repository.MarketPriceRepository;
+import com.krishilink.marketservice.service.IntelligenceService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 @RestController
-@RequestMapping("/api/prices")
+@RequiredArgsConstructor
 public class PriceController {
 
-    @GetMapping("/trends")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getTrends(
+    private final IntelligenceService intelligenceService;
+    private final MarketPriceRepository marketPriceRepository;
+
+    @GetMapping("/api/prices")
+    public ResponseEntity<ApiResponse<PriceInsightDto>> getPriceInsight(
             @RequestParam(defaultValue = "Wheat") String commodity) {
-        List<Map<String, Object>> history = new ArrayList<>();
-        double base = "Soybean".equalsIgnoreCase(commodity) ? 4850.0 : 2420.0;
-        for (int i = 14; i >= 0; i--) {
-            history.add(Map.of(
-                    "date", LocalDate.now().minusDays(i).toString(),
-                    "price", base + (Math.sin(i) * 30.0)
-            ));
+        PriceInsightDto insight = intelligenceService.getPriceInsight(commodity);
+        return ResponseEntity.ok(ApiResponse.ok(insight));
+    }
+
+    @GetMapping("/api/prices/trends")
+    public ResponseEntity<ApiResponse<PriceInsightDto>> getPriceTrends(
+            @RequestParam(defaultValue = "Wheat") String commodity) {
+        PriceInsightDto insight = intelligenceService.getPriceInsight(commodity);
+        return ResponseEntity.ok(ApiResponse.ok(insight));
+    }
+
+    @GetMapping("/api/prices/opportunity")
+    public ResponseEntity<ApiResponse<PriceOpportunityAlertDto>> getOpportunity(
+            @RequestParam(defaultValue = "Wheat") String commodity) {
+        PriceOpportunityAlertDto alert = intelligenceService.getPriceOpportunityAlert(commodity);
+        return ResponseEntity.ok(ApiResponse.ok(alert));
+    }
+
+    @GetMapping("/api/prices/advice")
+    public ResponseEntity<ApiResponse<SellAdviceDto>> getAdvice(
+            @RequestParam(defaultValue = "Wheat") String commodity) {
+        SellAdviceDto advice = intelligenceService.getSellAdvice(commodity);
+        return ResponseEntity.ok(ApiResponse.ok(advice));
+    }
+
+    @GetMapping("/api/marketPrice")
+    public ResponseEntity<ApiResponse<List<MarketPrice>>> getMarketPrices(
+            @RequestParam(required = false) String commodity) {
+        List<MarketPrice> list;
+        if (commodity != null && !commodity.isBlank()) {
+            list = marketPriceRepository.findByCommodityIgnoreCaseOrderByPriceDateDesc(commodity);
+        } else {
+            list = marketPriceRepository.findAll();
         }
-        return ResponseEntity.ok(ApiResponse.ok(Map.of(
-                "commodity", commodity,
-                "currentPrice", base,
-                "history", history,
-                "advice", Map.of(
-                        "action", "HOLD",
-                        "confidence", 82,
-                        "forecastPeakPrice", base + 110.0,
-                        "expectedDays", 8
-                )
-        )));
+        return ResponseEntity.ok(ApiResponse.ok(list));
     }
 }

@@ -1,5 +1,6 @@
 package com.krishilink.userservice.controller;
 
+import com.krishilink.userservice.client.LotClient;
 import com.krishilink.userservice.dto.ApiResponse;
 import com.krishilink.userservice.entity.FpoMembership;
 import com.krishilink.userservice.entity.User;
@@ -15,8 +16,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/fpo")
@@ -26,6 +26,7 @@ public class FpoController {
     private final FpoMembershipRepository fpoMembershipRepository;
     private final UserRepository userRepository;
     private final AuthService authService;
+    private final LotClient lotClient;
 
     @GetMapping("/members")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getMembers(@AuthenticationPrincipal UserPrincipal principal) {
@@ -98,5 +99,44 @@ public class FpoController {
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestBody Map<String, Object> body) {
         return ResponseEntity.ok(ApiResponse.ok(Map.of("connected", true), "Connection request sent"));
+    }
+
+    @GetMapping("/lots")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getFpoLots(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        List<FpoMembership> memberships = fpoMembershipRepository.findByFpo(principal.getUser());
+        List<Long> ownerIds = new ArrayList<>();
+        ownerIds.add(principal.getId());
+        memberships.forEach(m -> ownerIds.add(m.getFarmer().getId()));
+
+        try {
+            ApiResponse<List<Map<String, Object>>> lotRes = lotClient.getLotsByOwners(ownerIds);
+            if (lotRes != null && lotRes.getData() != null) {
+                return ResponseEntity.ok(lotRes);
+            }
+        } catch (Exception ignored) {}
+
+        return ResponseEntity.ok(ApiResponse.ok(List.of()));
+    }
+
+    @PostMapping("/aggregate")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> aggregateLots(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, Object> body) {
+        Map<String, Object> payload = new HashMap<>(body);
+        payload.put("fpoId", principal.getId());
+        payload.put("fpoName", principal.getUser().getName());
+        payload.put("location", principal.getUser().getLocation());
+        payload.put("latitude", principal.getUser().getLatitude());
+        payload.put("longitude", principal.getUser().getLongitude());
+
+        ApiResponse<Map<String, Object>> response = lotClient.aggregateLots(payload);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/matches")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getFpoMatches(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(List.of()));
     }
 }

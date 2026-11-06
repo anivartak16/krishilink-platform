@@ -7,6 +7,7 @@ import com.krishilink.marketservice.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,6 +25,7 @@ public class NotificationController {
     }
 
     @PatchMapping("/{id}/read")
+    @Transactional
     public ResponseEntity<ApiResponse<Notification>> markRead(@PathVariable Long id) {
         Notification n = notificationRepository.findById(id).orElse(null);
         if (n != null) {
@@ -31,5 +33,12 @@ public class NotificationController {
             notificationRepository.save(n);
         }
         return ResponseEntity.ok(ApiResponse.ok(n));
+    }
+
+    @PatchMapping("/read-all")
+    @Transactional
+    public ResponseEntity<ApiResponse<String>> markAllAsRead(@AuthenticationPrincipal UserPrincipal principal) {
+        notificationRepository.markAllAsRead(principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok("All notifications marked as read"));
     }
 }

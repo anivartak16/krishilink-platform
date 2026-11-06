@@ -38,6 +38,13 @@ public class OfferController {
         return ResponseEntity.ok(ApiResponse.ok(offerRepository.findByBuyerIdOrSellerId(principal.getId(), principal.getId())));
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<Offer>> getOfferById(@PathVariable Long id) {
+        Offer offer = offerRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Offer not found with id: " + id));
+        return ResponseEntity.ok(ApiResponse.ok(offer));
+    }
+
     @PostMapping
     public ResponseEntity<ApiResponse<Offer>> createOffer(
             @AuthenticationPrincipal UserPrincipal principal,
@@ -121,5 +128,23 @@ public class OfferController {
         offer.setStatus(OfferStatus.REJECTED);
         offer = offerRepository.save(offer);
         return ResponseEntity.ok(ApiResponse.ok(offer, "Offer rejected"));
+    }
+
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<ApiResponse<Object>> updateStatus(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, String> body) {
+        String status = body.get("status");
+        if ("ACCEPTED".equalsIgnoreCase(status)) {
+            ApiResponse<Offer> res = acceptOffer(id, principal).getBody();
+            return ResponseEntity.ok(ApiResponse.ok(res != null ? res.getData() : null));
+        } else if ("REJECTED".equalsIgnoreCase(status)) {
+            ApiResponse<Offer> res = rejectOffer(id).getBody();
+            return ResponseEntity.ok(ApiResponse.ok(res != null ? res.getData() : null));
+        }
+        Offer offer = offerRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Offer not found"));
+        return ResponseEntity.ok(ApiResponse.ok(offer));
     }
 }

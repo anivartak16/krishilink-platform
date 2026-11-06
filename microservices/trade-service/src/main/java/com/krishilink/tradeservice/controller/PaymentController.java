@@ -58,18 +58,79 @@ public class PaymentController {
         Payment payment = paymentRepository.findByTransactionId(tx.getId()).orElseGet(() ->
                 Payment.builder().transactionId(tx.getId()).amount(tx.getAmount()).build());
 
-        String refId = "PAY-" + System.currentTimeMillis();
-        payment.setPaymentMethod(body != null && body.get("paymentMethod") != null ? body.get("paymentMethod").toString() : "UPI");
+        String method = body != null && body.get("paymentMethod") != null ?
+                body.get("paymentMethod").toString() : "UPI_ESCROW";
+        String remarks = body != null && body.get("remarks") != null ?
+                body.get("remarks").toString() : "Payment deposited in KrishiLink Escrow account";
+        boolean simulateFail = body != null && Boolean.TRUE.equals(body.get("simulateFailure"));
+
+        String refId = "PAY-ESC-" + System.currentTimeMillis();
+        payment.setPaymentMethod(method);
         payment.setAmount(tx.getAmount());
         payment.setReferenceId(refId);
+
+        if (simulateFail) {
+            payment.setStatus(PaymentStatus.FAILED);
+            payment.setRemarks("Escrow deposit failed during bank authorization.");
+            payment = paymentRepository.save(payment);
+            return ResponseEntity.ok(ApiResponse.ok(Map.of("payment", payment, "transaction", tx), "Payment failed"));
+        }
+
         payment.setStatus(PaymentStatus.PAID);
         payment.setPaidAt(LocalDateTime.now());
-        payment.setRemarks("Escrow settlement secured. Ref: " + refId);
+        payment.setRemarks(remarks);
         payment = paymentRepository.save(payment);
 
-        tx.setStatus(TransactionStatus.CONFIRMED);
-        transactionRepository.save(tx);
+        if (tx.getStatus() == TransactionStatus.CREATED) {
+            tx.setStatus(TransactionStatus.CONFIRMED);
+            transactionRepository.save(tx);
+        }
 
-        return ResponseEntity.ok(ApiResponse.ok(Map.of("payment", payment, "transaction", tx), "Escrow Payment Secured"));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("payment", payment, "transaction", tx), "Payment secured in escrow"));
+    }
+
+    @PostMapping
+    @Transactional
+    public ResponseEntity<ApiResponse<Payment>> createPayment(@RequestBody Map<String, Object> body) {
+        Long txId = Long.valueOf(body.get("transactionId").toString());
+        Transaction tx = transactionRepository.findById(txId)
+                .orElseThrow(() -> new RuntimeException("Transaction not found"));
+
+        Double amount = body.get("amount") != null ? Double.valueOf(body.get("amount").toString()) : tx.getAmount();
+        String method = body.get("paymentMethod") != null ? body.get("paymentMethod").toString() : "Bank Transfer";
+
+        Payment payment = paymentRepository.findByTransactionId(tx.getId()).orElse(
+                Payment.builder().transactionId(tx.getId()).build()
+        );
+        payment.setAmount(amount);
+        payment.setPaymentMethod(method);
+        payment.setStatus(PaymentStatus.PROCESSING);
+        payment.setReferenceId(body.get("referenceId") != null ? body.get("referenceId").toString() : "REF-" + System.currentTimeMillis());
+        payment = paymentRepository.save(payment);
+
+        return ResponseEntity.ok(ApiResponse.ok(payment, "Payment initiated"));
+    }
+
+    @PatchMapping("/{id}")
+    @Transactional
+    public ResponseEntity<ApiResponse<Payment>> updatePayment(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body) {
+        Payment payment = paymentRepository.findById(id)
+                .or(() -> paymentRepository.findByTransactionId(id))
+                .orElseThrow(() -> new RuntimeException("Payment not found"));
+
+        if (body.containsKey("status")) {
+            payment.setStatus(PaymentStatus.valueOf(body.get("status").toUpperCase()));
+            if (payment.getStatus() == PaymentStatus.PAID) {
+                payment.setPaidAt(LocalDateTime.now());
+            }
+        }
+        if (body.containsKey("remarks")) {
+            payment.setRemarks(body.get("remarks"));
+        }
+        payment = paymentRepository.save(payment);
+
+        return ResponseEntity.ok(ApiResponse.ok(payment, "Payment status updated"));
     }
 }

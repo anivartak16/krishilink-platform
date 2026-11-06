@@ -11,6 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/lots")
@@ -50,6 +51,23 @@ public class LotController {
         return ResponseEntity.ok(ApiResponse.ok(lot, "Lot registered successfully"));
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<ApiResponse<Lot>> updateLot(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody LotDto dto) {
+        Lot lot = lotService.updateLot(id, principal, dto);
+        return ResponseEntity.ok(ApiResponse.ok(lot, "Lot updated successfully"));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<String>> deleteLot(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        lotService.deleteLot(id, principal);
+        return ResponseEntity.ok(ApiResponse.ok("Lot cancelled successfully"));
+    }
+
     @PostMapping("/{id}/publish")
     public ResponseEntity<ApiResponse<Lot>> publishLot(
             @PathVariable Long id,
@@ -59,10 +77,32 @@ public class LotController {
     }
 
     @PostMapping("/{id}/verify-request")
-    public ResponseEntity<ApiResponse<Lot>> resubmitForVerification(
+    public ResponseEntity<ApiResponse<Lot>> sendForVerification(
             @PathVariable Long id,
-            @AuthenticationPrincipal UserPrincipal principal) {
-        Lot lot = lotService.resubmitLot(id, principal);
-        return ResponseEntity.ok(ApiResponse.ok(lot, "Harvest sample resubmitted for testing"));
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody(required = false) Map<String, String> body) {
+        String notes = body != null ? body.get("notes") : null;
+        Lot lot = lotService.sendForVerification(id, principal, notes);
+        return ResponseEntity.ok(ApiResponse.ok(lot, "Lot submitted for quality verification"));
+    }
+
+    @PostMapping("/by-owners")
+    public ResponseEntity<ApiResponse<List<Lot>>> getLotsByOwners(@RequestBody List<Long> ownerIds) {
+        return ResponseEntity.ok(ApiResponse.ok(lotService.getLotsByOwnerIds(ownerIds)));
+    }
+
+    @PostMapping("/aggregate")
+    public ResponseEntity<ApiResponse<Lot>> aggregateLots(@RequestBody Map<String, Object> body) {
+        Long fpoId = Long.valueOf(body.get("fpoId").toString());
+        String fpoName = (String) body.get("fpoName");
+        String location = (String) body.get("location");
+        Double lat = body.get("latitude") != null ? Double.valueOf(body.get("latitude").toString()) : null;
+        Double lon = body.get("longitude") != null ? Double.valueOf(body.get("longitude").toString()) : null;
+        List<?> rawIds = (List<?>) body.get("lotIds");
+        List<Long> lotIds = rawIds.stream().map(o -> Long.valueOf(o.toString())).toList();
+        Double expectedPrice = body.get("expectedPrice") != null ? Double.valueOf(body.get("expectedPrice").toString()) : null;
+
+        Lot lot = lotService.aggregateLots(fpoId, fpoName, location, lat, lon, lotIds, expectedPrice);
+        return ResponseEntity.ok(ApiResponse.ok(lot, "FPO aggregated lot created successfully"));
     }
 }

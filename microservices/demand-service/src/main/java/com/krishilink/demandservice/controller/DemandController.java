@@ -45,4 +45,21 @@ public class DemandController {
         Demand demand = demandService.createDemand(principal, dto);
         return ResponseEntity.ok(ApiResponse.ok(demand, "Demand created successfully"));
     }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<ApiResponse<Demand>> updateDemand(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody DemandDto dto) {
+        Demand demand = demandService.updateDemand(id, principal, dto);
+        return ResponseEntity.ok(ApiResponse.ok(demand, "Demand updated successfully"));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<String>> deleteDemand(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        demandService.deleteDemand(id, principal);
+        return ResponseEntity.ok(ApiResponse.ok("Demand cancelled successfully"));
+    }
 }

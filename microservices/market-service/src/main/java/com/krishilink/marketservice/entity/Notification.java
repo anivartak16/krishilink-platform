@@ -29,6 +29,15 @@ public class Notification {
     @Builder.Default
     private Boolean isRead = false;
 
+    @JsonProperty("read")
+    public Boolean getRead() {
+        return isRead;
+    }
+
+    public void setRead(Boolean read) {
+        this.isRead = read;
+    }
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;

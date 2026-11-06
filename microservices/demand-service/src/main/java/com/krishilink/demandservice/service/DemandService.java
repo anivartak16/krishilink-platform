@@ -14,49 +14,41 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class DemandService {
 
     private final DemandRepository demandRepository;
-    private final UserClient userClient;
     private final LotClient lotClient;
+    private final UserClient userClient;
 
     @Transactional
     public Demand createDemand(UserPrincipal principal, DemandDto dto) {
         String buyerName = "Buyer";
-        String buyerOrg = "AgroCorp";
         String buyerPhone = "";
         try {
-            ApiResponse<Map<String, Object>> u = userClient.getUserById(principal.getId());
-            if (u != null && u.getData() != null) {
-                buyerName = (String) u.getData().get("name");
-                buyerOrg = (String) u.getData().get("organizationName");
-                buyerPhone = (String) u.getData().get("phone");
+            ApiResponse<Map<String, Object>> userRes = userClient.getUserById(principal.getId());
+            if (userRes != null && userRes.getData() != null) {
+                buyerName = (String) userRes.getData().get("name");
+                buyerPhone = (String) userRes.getData().get("phone");
             }
         } catch (Exception ignored) {}
 
         Demand demand = Demand.builder()
                 .buyerId(principal.getId())
                 .buyerName(buyerName)
-                .buyerOrganization(buyerOrg)
                 .buyerPhone(buyerPhone)
                 .commodity(dto.getCommodity())
                 .requiredQuantity(dto.getRequiredQuantity())
-                .unit(dto.getUnit() != null ? dto.getUnit() : "KG")
-                .requiredQuality(dto.getRequiredQuality() != null ? dto.getRequiredQuality() : "Grade A")
-                .variety(dto.getVariety() != null ? dto.getVariety() : "All Varieties")
-                .maxMoisture(dto.getMaxMoisture() != null ? dto.getMaxMoisture() : 12.0)
-                .preferredLocation(dto.getPreferredLocation() != null ? dto.getPreferredLocation() : "Indore")
-                .deliveryLocation(dto.getDeliveryLocation())
                 .maxPrice(dto.getMaxPrice())
-                .paymentTerms(dto.getPaymentTerms() != null ? dto.getPaymentTerms() : "100% Escrow Secured")
-                .contactPhone(dto.getContactPhone() != null ? dto.getContactPhone() : buyerPhone)
-                .farmingType(dto.getFarmingType() != null ? dto.getFarmingType() : "any")
-                .notes(dto.getNotes())
-                .deadline(dto.getDeadline())
+                .preferredLocation(dto.getPreferredLocation() != null ? dto.getPreferredLocation() : "Indore")
+                .requiredQuality(dto.getRequiredQuality() != null ? dto.getRequiredQuality() : "Grade A")
+                .deadline(dto.getDeadline() != null ? dto.getDeadline() : LocalDate.now().plusDays(15))
                 .status(DemandStatus.ACTIVE)
                 .build();
 
@@ -69,6 +61,12 @@ public class DemandService {
             spec = spec.and((root, query, cb) ->
                     cb.like(cb.lower(root.get("commodity")), "%" + commodity.toLowerCase().trim() + "%"));
         }
+        if (status != null && !status.isBlank()) {
+            try {
+                DemandStatus s = DemandStatus.valueOf(status.toUpperCase().trim());
+                spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), s));
+            } catch (Exception ignored) {}
+        }
         if (buyerId != null) {
             spec = spec.and((root, query, cb) -> cb.equal(root.get("buyerId"), buyerId));
         }
@@ -78,6 +76,32 @@ public class DemandService {
     public Demand getDemandById(Long id) {
         return demandRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Demand not found with id: " + id));
+    }
+
+    @Transactional
+    public Demand updateDemand(Long id, UserPrincipal principal, DemandDto dto) {
+        Demand demand = getDemandById(id);
+        if (!demand.getBuyerId().equals(principal.getId()) && !"ADMIN".equalsIgnoreCase(principal.getRole())) {
+            throw new RuntimeException("Unauthorized to update this demand");
+        }
+
+        if (dto.getCommodity() != null) demand.setCommodity(dto.getCommodity());
+        if (dto.getRequiredQuantity() != null) demand.setRequiredQuantity(dto.getRequiredQuantity());
+        if (dto.getMaxPrice() != null) demand.setMaxPrice(dto.getMaxPrice());
+        if (dto.getPreferredLocation() != null) demand.setPreferredLocation(dto.getPreferredLocation());
+        if (dto.getDeadline() != null) demand.setDeadline(dto.getDeadline());
+
+        return demandRepository.save(demand);
+    }
+
+    @Transactional
+    public void deleteDemand(Long id, UserPrincipal principal) {
+        Demand demand = getDemandById(id);
+        if (!demand.getBuyerId().equals(principal.getId()) && !"ADMIN".equalsIgnoreCase(principal.getRole())) {
+            throw new RuntimeException("Unauthorized to delete this demand");
+        }
+        demand.setStatus(DemandStatus.CANCELLED);
+        demandRepository.save(demand);
     }
 
     public List<MatchDto> getMatchesFor(Long demandId) {

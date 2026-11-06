@@ -14,6 +14,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -64,7 +66,7 @@ public class LotService {
                 .latitude(dto.getLatitude() != null ? dto.getLatitude() : 22.7196)
                 .expectedPrice(dto.getExpectedPrice())
                 .quality(quality)
-                .availableUntil(dto.getAvailableUntil())
+                .availableUntil(dto.getAvailableUntil() != null ? dto.getAvailableUntil() : LocalDate.now().plusDays(30))
                 .farmingType(dto.getFarmingType() != null ? dto.getFarmingType() : "conventional")
                 .organicCertificationStatus(dto.getOrganicCertificationStatus() != null ? dto.getOrganicCertificationStatus() : "not_verified")
                 .certificationType(dto.getCertificationType())
@@ -96,8 +98,32 @@ public class LotService {
                     root.get("status").in(LotStatus.AVAILABLE, LotStatus.PARTIALLY_SOLD));
         }
 
+        if (farmingType != null && !farmingType.isBlank()) {
+            spec = spec.and((root, query, cb) ->
+                    cb.equal(cb.lower(root.get("farmingType")), farmingType.toLowerCase().trim()));
+        }
+
+        if (minPrice != null) {
+            spec = spec.and((root, query, cb) ->
+                    cb.greaterThanOrEqualTo(root.get("expectedPrice"), minPrice));
+        }
+
+        if (maxPrice != null) {
+            spec = spec.and((root, query, cb) ->
+                    cb.lessThanOrEqualTo(root.get("expectedPrice"), maxPrice));
+        }
+
         if (ownerId != null) {
             spec = spec.and((root, query, cb) -> cb.equal(root.get("ownerId"), ownerId));
+        }
+
+        if (search != null && !search.isBlank()) {
+            String s = "%" + search.toLowerCase().trim() + "%";
+            spec = spec.and((root, query, cb) ->
+                    cb.or(
+                            cb.like(cb.lower(root.get("commodity")), s),
+                            cb.like(cb.lower(root.get("location")), s)
+                    ));
         }
 
         return lotRepository.findAll(spec);
@@ -106,6 +132,33 @@ public class LotService {
     public Lot getLotById(Long id) {
         return lotRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Lot not found with id: " + id));
+    }
+
+    @Transactional
+    public Lot updateLot(Long id, UserPrincipal principal, LotDto dto) {
+        Lot lot = getLotById(id);
+        if (!lot.getOwnerId().equals(principal.getId()) && !"ADMIN".equalsIgnoreCase(principal.getRole())) {
+            throw new RuntimeException("Unauthorized to update this lot");
+        }
+
+        if (dto.getCommodity() != null) lot.setCommodity(dto.getCommodity());
+        if (dto.getQuantity() != null) lot.setQuantity(dto.getQuantity());
+        if (dto.getExpectedPrice() != null) lot.setExpectedPrice(dto.getExpectedPrice());
+        if (dto.getLocation() != null) lot.setLocation(dto.getLocation());
+        if (dto.getAvailableUntil() != null) lot.setAvailableUntil(dto.getAvailableUntil());
+        if (dto.getFarmingType() != null) lot.setFarmingType(dto.getFarmingType());
+
+        return lotRepository.save(lot);
+    }
+
+    @Transactional
+    public void deleteLot(Long id, UserPrincipal principal) {
+        Lot lot = getLotById(id);
+        if (!lot.getOwnerId().equals(principal.getId()) && !"ADMIN".equalsIgnoreCase(principal.getRole())) {
+            throw new RuntimeException("Unauthorized to delete this lot");
+        }
+        lot.setStatus(LotStatus.CANCELLED);
+        lotRepository.save(lot);
     }
 
     @Transactional
@@ -119,6 +172,21 @@ public class LotService {
     }
 
     @Transactional
+    public Lot sendForVerification(Long id, UserPrincipal principal, String notes) {
+        Lot lot = getLotById(id);
+        if (!lot.getOwnerId().equals(principal.getId()) && !"ADMIN".equalsIgnoreCase(principal.getRole())) {
+            throw new RuntimeException("Unauthorized to request verification");
+        }
+        lot.setStatus(LotStatus.PENDING_VERIFICATION);
+        if (lot.getQuality() != null) {
+            lot.getQuality().setInspectionStatus("PENDING");
+            lot.getQuality().setInspectionNotes(notes != null ? notes : "Submitted for quality testing");
+            qualityRepository.save(lot.getQuality());
+        }
+        return lotRepository.save(lot);
+    }
+
+    @Transactional
     public Lot resubmitLot(Long id, UserPrincipal principal) {
         Lot lot = getLotById(id);
         if (!lot.getOwnerId().equals(principal.getId()) && !"ADMIN".equalsIgnoreCase(principal.getRole())) {
@@ -126,5 +194,54 @@ public class LotService {
         }
         lot.setStatus(LotStatus.PENDING_VERIFICATION);
         return lotRepository.save(lot);
+    }
+
+    public List<Lot> getLotsByOwnerIds(Collection<Long> ownerIds) {
+        if (ownerIds == null || ownerIds.isEmpty()) return List.of();
+        return lotRepository.findByOwnerIdInAndStatusIn(
+                ownerIds,
+                List.of(LotStatus.AVAILABLE, LotStatus.PARTIALLY_SOLD)
+        );
+    }
+
+    @Transactional
+    public Lot aggregateLots(Long fpoId, String fpoName, String location, Double lat, Double lon,
+                             List<Long> lotIds, Double customPrice) {
+        List<Lot> source = lotRepository.findAllById(lotIds);
+        if (source.isEmpty()) {
+            throw new RuntimeException("No valid lots found for aggregation");
+        }
+
+        String commodity = source.get(0).getCommodity();
+        double totalQty = source.stream().mapToDouble(l -> l.getRemainingQuantity() != null ? l.getRemainingQuantity() : l.getQuantity()).sum();
+        double expectedPrice = customPrice != null && customPrice > 0 ? customPrice :
+                source.stream().mapToDouble(Lot::getExpectedPrice).average().orElse(25.0);
+
+        Lot aggregated = Lot.builder()
+                .ownerId(fpoId)
+                .ownerName(fpoName != null ? fpoName : "FPO Aggregation")
+                .ownerType("FPO")
+                .commodity(commodity)
+                .quantity(totalQty)
+                .remainingQuantity(totalQty)
+                .expectedPrice(expectedPrice)
+                .unit(source.get(0).getUnit())
+                .location(location != null ? location : "Central Hub")
+                .latitude(lat != null ? lat : 22.7196)
+                .longitude(lon != null ? lon : 75.8577)
+                .quality(source.get(0).getQuality())
+                .status(LotStatus.AVAILABLE)
+                .availableUntil(LocalDate.now().plusDays(14))
+                .farmingType(source.get(0).getFarmingType())
+                .build();
+
+        aggregated = lotRepository.save(aggregated);
+
+        for (Lot s : source) {
+            s.setStatus(LotStatus.CANCELLED);
+            lotRepository.save(s);
+        }
+
+        return aggregated;
     }
 }
