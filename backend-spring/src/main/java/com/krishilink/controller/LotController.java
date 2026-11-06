@@ -22,13 +22,18 @@ public class LotController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<Lot>>> getLots(
+            @AuthenticationPrincipal UserPrincipal principal,
             @RequestParam(required = false) String commodity,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String farmingType,
             @RequestParam(required = false) Double minPrice,
             @RequestParam(required = false) Double maxPrice,
             @RequestParam(required = false) Long owner,
-            @RequestParam(required = false) String search) {
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Boolean mine) {
+        if (Boolean.TRUE.equals(mine) && principal != null) {
+            owner = principal.getUser().getId();
+        }
         List<Lot> lots = lotService.getLots(commodity, status, farmingType, minPrice, maxPrice, owner, search);
         return ResponseEntity.ok(ApiResponse.ok(lots));
     }

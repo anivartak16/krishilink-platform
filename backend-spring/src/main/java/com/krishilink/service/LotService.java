@@ -96,8 +96,8 @@ public class LotService {
                 LotStatus lotStatus = LotStatus.valueOf(status.toUpperCase().trim());
                 spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), lotStatus));
             } catch (Exception ignored) {}
-        } else {
-            // Default to available lots
+        } else if (ownerId == null) {
+            // Default to available lots for public/marketplace view
             spec = spec.and((root, query, cb) ->
                     root.get("status").in(LotStatus.AVAILABLE, LotStatus.PARTIALLY_SOLD));
         }

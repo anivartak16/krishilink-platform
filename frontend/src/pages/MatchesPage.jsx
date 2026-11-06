@@ -13,10 +13,37 @@ export function MatchesPage() {
   const [fpoData, setFpoData] = useState(null);
   const [demands, setDemands] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingDemandId, setLoadingDemandId] = useState(null);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const endpoint = isBuyer ? "/demands?mine=true" : "/demands";
+      const res = await api.get(endpoint);
+      setDemands(res.data?.data || []);
+    } catch {
+      setDemands([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
   }, [isFpo, isBuyer]);
+
+  const loadMatches = async (demandId) => {
+    setLoadingDemandId(demandId);
+    try {
+      const x = await api.get("/matches/" + demandId);
+      setMatches(x.data?.data || []);
+    } catch {
+      setMatches([]);
+    } finally {
+      setLoadingDemandId(null);
+    }
+  };
 
   return (
     <section>
@@ -29,32 +56,38 @@ export function MatchesPage() {
         criteria—never a black box.
       </p>
 
+      {loading && <p>Loading demands…</p>}
+
+      {!loading && demands.length === 0 && (
+        <p className="subtext">No active demands found for matching.</p>
+      )}
+
       <div className="lots">
-        {demands.map((d) => (
-          <article className="lot" key={d._id}>
-            <StatusBadge>{d.status}</StatusBadge>
-            <h3>
-              {d.commodity} · {d.requiredQuantity} kg
-            </h3>
-            <p>
-              Maximum ₹{d.maxPrice}/kg · {d.preferredLocation}
-            </p>
-            <button
-              className="primary"
-              onClick={() =>
-                api
-                  .get("/matches/" + d._id)
-                  .then((x) => setMatches(x.data.data))
-              }
-            >
-              Show ranked matches
-            </button>
-          </article>
-        ))}
+        {demands.map((d) => {
+          const demandId = d.id || d._id;
+          return (
+            <article className="lot" key={demandId}>
+              <StatusBadge>{d.status}</StatusBadge>
+              <h3>
+                {d.commodity} · {d.requiredQuantity} kg
+              </h3>
+              <p>
+                Maximum ₹{d.maxPrice}/kg · {d.preferredLocation}
+              </p>
+              <button
+                className="primary"
+                onClick={() => loadMatches(demandId)}
+                disabled={loadingDemandId === demandId}
+              >
+                {loadingDemandId === demandId ? "Calculating..." : "Show ranked matches"}
+              </button>
+            </article>
+          );
+        })}
       </div>
 
       {matches.map((m) => (
-        <div className="match" key={m.lot?._id || m.matchScore}>
+        <div className="match" key={m.lot?.id || m.lot?._id || m.matchScore}>
           <div className="match-heading">
             <b>{m.matchScore}% fair match</b>
             <span>

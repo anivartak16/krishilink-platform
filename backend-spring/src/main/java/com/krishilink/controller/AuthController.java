@@ -20,6 +20,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final AadhaarKycService aadhaarKycService;
+    private final com.krishilink.repository.UserRepository userRepository;
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(@RequestBody RegisterRequest req) {
@@ -64,7 +65,7 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok(authService.getProfile(id), "User profile retrieved"));
     }
 
-    @PostMapping("/kyc/otp")
+    @PostMapping({"/kyc/otp", "/kyc/send-otp"})
     public ResponseEntity<ApiResponse<Map<String, Object>>> sendKycOtp(@RequestBody KycOtpRequest req) {
         Map<String, Object> res = aadhaarKycService.generateOtp(req.getAadhaarNumber());
         return ResponseEntity.ok(ApiResponse.ok(res, (String) res.get("message")));
@@ -83,6 +84,11 @@ public class AuthController {
             @RequestBody KycVerifyRequest req) {
         User user = principal != null ? principal.getUser() : null;
         Map<String, Object> res = aadhaarKycService.verifyOtp(user, req.getClientId(), req.getOtp());
-        return ResponseEntity.ok(ApiResponse.ok(res, (String) res.get("message")));
+        Map<String, Object> mutableRes = new java.util.LinkedHashMap<>(res);
+        if (user != null) {
+            User reloaded = userRepository.findById(user.getId()).orElse(user);
+            mutableRes.put("user", authService.sanitizeUser(reloaded));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(mutableRes, (String) mutableRes.get("message")));
     }
 }

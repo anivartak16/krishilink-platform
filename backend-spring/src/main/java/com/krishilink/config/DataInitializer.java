@@ -35,9 +35,8 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        ensureKvkUser();
-
         if (userRepository.count() > 0) {
+            ensureKvkUser();
             log.info("Database already initialized. Skipping seed.");
             return;
         }

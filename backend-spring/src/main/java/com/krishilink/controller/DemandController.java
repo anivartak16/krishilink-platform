@@ -21,9 +21,14 @@ public class DemandController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<Demand>>> getDemands(
+            @AuthenticationPrincipal UserPrincipal principal,
             @RequestParam(required = false) String commodity,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) Long buyer) {
+            @RequestParam(required = false) Long buyer,
+            @RequestParam(required = false) Boolean mine) {
+        if (Boolean.TRUE.equals(mine) && principal != null) {
+            buyer = principal.getUser().getId();
+        }
         List<Demand> demands = demandService.getDemands(commodity, status, buyer);
         return ResponseEntity.ok(ApiResponse.ok(demands));
     }

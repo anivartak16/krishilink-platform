@@ -356,4 +356,74 @@ public class KrishiLinkIntegrationTests {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.active").value(true));
     }
+
+    @Test
+    @DisplayName("Test Admin Analytics and User Verification Toggle")
+    void testAdminAnalyticsAndToggle() throws Exception {
+        // 1. Analytics
+        mockMvc.perform(get("/api/admin/analytics")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.users").isArray())
+                .andExpect(jsonPath("$.data.lots").isArray())
+                .andExpect(jsonPath("$.data.offers").isArray())
+                .andExpect(jsonPath("$.data.transactions").isArray())
+                .andExpect(jsonPath("$.data.payments").isArray());
+
+        // 2. Toggle user verification
+        mockMvc.perform(patch("/api/admin/users/1")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("verification", "VERIFIED"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.verification").value("VERIFIED"));
+    }
+
+    @Test
+    @DisplayName("Test KYC Send and Verify OTP with Updated User Response")
+    void testKycSendAndVerifyOtp() throws Exception {
+        // Send OTP
+        MvcResult sendRes = mockMvc.perform(post("/api/auth/kyc/send-otp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("aadhaarNumber", "367598324576"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.client_id").isString())
+                .andReturn();
+
+        Map<?, ?> sendData = (Map<?, ?>) objectMapper.readValue(sendRes.getResponse().getContentAsString(), Map.class).get("data");
+        String clientId = (String) sendData.get("client_id");
+
+        // Verify OTP
+        mockMvc.perform(post("/api/auth/kyc/verify-otp")
+                        .header("Authorization", "Bearer " + farmerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "client_id", clientId,
+                                "otp", "123456"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.verified").value(true))
+                .andExpect(jsonPath("$.data.user").exists())
+                .andExpect(jsonPath("$.data.user.kycVerified").value(true));
+    }
+
+    @Test
+    @DisplayName("Test Filter Lots and Demands with mine=true")
+    void testMineFilters() throws Exception {
+        mockMvc.perform(get("/api/lots?mine=true")
+                        .header("Authorization", "Bearer " + farmerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").isArray());
+
+        mockMvc.perform(get("/api/demands?mine=true")
+                        .header("Authorization", "Bearer " + farmerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").isArray());
+    }
 }
