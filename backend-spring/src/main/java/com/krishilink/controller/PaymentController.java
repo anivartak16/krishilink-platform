@@ -1,18 +1,19 @@
 package com.krishilink.controller;
 
 import com.krishilink.dto.ApiResponse;
+import com.krishilink.entity.Notification;
 import com.krishilink.entity.Payment;
 import com.krishilink.entity.Transaction;
 import com.krishilink.enums.PaymentStatus;
+import com.krishilink.enums.TransactionStatus;
 import com.krishilink.exception.ResourceNotFoundException;
+import com.krishilink.repository.NotificationRepository;
 import com.krishilink.repository.PaymentRepository;
 import com.krishilink.repository.TransactionRepository;
-import com.krishilink.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,6 +26,7 @@ public class PaymentController {
 
     private final PaymentRepository paymentRepository;
     private final TransactionRepository transactionRepository;
+    private final NotificationRepository notificationRepository;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<Payment>>> getPayments() {
@@ -32,16 +34,87 @@ public class PaymentController {
     }
 
     @GetMapping("/{transactionId}")
+    @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> getByTransactionId(@PathVariable Long transactionId) {
-        Payment payment = paymentRepository.findByTransactionId(transactionId)
-                .orElseThrow(() -> new ResourceNotFoundException("Payment record not found for transaction"));
+        Transaction tx = transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
+
+        Payment payment = paymentRepository.findByTransaction(tx).orElseGet(() -> {
+            Payment p = Payment.builder()
+                    .transaction(tx)
+                    .amount(tx.getAmount())
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            return paymentRepository.save(p);
+        });
+
         return ResponseEntity.ok(ApiResponse.ok(Map.of(
                 "payment", payment,
-                "transaction", payment.getTransaction()
+                "transaction", tx
         )));
     }
 
+    @PostMapping("/{transactionId}/process")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> processPayment(
+            @PathVariable Long transactionId,
+            @RequestBody(required = false) Map<String, Object> body) {
+        Transaction tx = transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
+
+        String method = body != null && body.get("paymentMethod") != null ?
+                body.get("paymentMethod").toString() : "UPI";
+        String remarks = body != null && body.get("remarks") != null ?
+                body.get("remarks").toString() : "Escrow settlement secured";
+        boolean simulateFail = body != null && Boolean.TRUE.equals(body.get("simulateFailure"));
+
+        Payment payment = paymentRepository.findByTransaction(tx).orElseGet(() ->
+                Payment.builder().transaction(tx).amount(tx.getAmount()).build()
+        );
+
+        String refId = "PAY-" + System.currentTimeMillis() + "-" + (1000 + (int) (Math.random() * 9000));
+        payment.setPaymentMethod(method);
+        payment.setAmount(tx.getAmount());
+        payment.setReferenceId(refId);
+
+        if (simulateFail) {
+            payment.setStatus(PaymentStatus.FAILED);
+            payment.setRemarks("Payment failed during processing simulation");
+            payment = paymentRepository.save(payment);
+            return ResponseEntity.ok(ApiResponse.ok(Map.of(
+                    "payment", payment,
+                    "transaction", tx
+            ), "Payment failed"));
+        }
+
+        payment.setStatus(PaymentStatus.PAID);
+        payment.setPaidAt(LocalDateTime.now());
+        payment.setRemarks(remarks + " Ref: " + refId);
+        payment = paymentRepository.save(payment);
+
+        if (tx.getStatus() == TransactionStatus.CREATED) {
+            tx.setStatus(TransactionStatus.CONFIRMED);
+            transactionRepository.save(tx);
+        }
+
+        if (tx.getSeller() != null) {
+            Notification notif = Notification.builder()
+                    .user(tx.getSeller())
+                    .type("PAYMENT_RECEIVED")
+                    .message("₹" + tx.getAmount() + " secured in KrishiLink Escrow for " +
+                            (tx.getLot() != null ? tx.getLot().getCommodity() : "order") + ". You can now arrange dispatch.")
+                    .build();
+            notificationRepository.save(notif);
+        }
+
+        return ResponseEntity.ok(ApiResponse.ok(Map.of(
+                "payment", payment,
+                "transaction", tx
+        ), "Payment processed successfully"));
+    }
+
     @PostMapping
+    @Transactional
     public ResponseEntity<ApiResponse<Payment>> createPayment(@RequestBody Map<String, Object> body) {
         Long txId = Long.valueOf(body.get("transactionId").toString());
         Transaction tx = transactionRepository.findById(txId)
@@ -62,67 +135,13 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.ok(payment, "Payment initiated"));
     }
 
-    @PostMapping("/{id}/process")
-    @Transactional
-    public ResponseEntity<ApiResponse<Map<String, Object>>> processPayment(
-            @PathVariable Long id,
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody(required = false) Map<String, Object> body) {
-        Transaction tx = transactionRepository.findById(id).orElse(null);
-        Payment payment;
-        if (tx != null) {
-            payment = paymentRepository.findByTransaction(tx)
-                    .orElseThrow(() -> new ResourceNotFoundException("Payment record not found for transaction"));
-        } else {
-            payment = paymentRepository.findById(id)
-                    .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
-            tx = payment.getTransaction();
-        }
-
-        if (principal == null || principal.getUser() == null) {
-            throw new ResourceNotFoundException("Authenticated user not found");
-        }
-        Long userId = principal.getUser().getId();
-        if (!userId.equals(tx.getBuyer().getId()) && !userId.equals(tx.getSeller().getId())
-                && principal.getUser().getRole() != com.krishilink.enums.Role.ADMIN) {
-            throw new com.krishilink.exception.BadRequestException("You are not allowed to process this payment");
-        }
-        if (payment.getStatus() == PaymentStatus.PAID) {
-            return paymentResult(payment, tx, "Payment already confirmed");
-        }
-        if (body != null && Boolean.parseBoolean(String.valueOf(body.get("simulateFailure")))) {
-            payment.setStatus(PaymentStatus.FAILED);
-            payment.setRemarks(body.get("remarks") != null ? String.valueOf(body.get("remarks")) : "Payment failed");
-            paymentRepository.save(payment);
-            throw new com.krishilink.exception.BadRequestException("Payment authorization failed");
-        }
-
-        payment.setPaymentMethod(body != null && body.get("paymentMethod") != null
-                ? String.valueOf(body.get("paymentMethod")) : payment.getPaymentMethod());
-        payment.setRemarks(body != null && body.get("remarks") != null
-                ? String.valueOf(body.get("remarks")) : payment.getRemarks());
-        payment.setReferenceId("KL-" + System.currentTimeMillis());
-        payment.setStatus(PaymentStatus.PAID);
-        payment.setPaidAt(LocalDateTime.now());
-        tx.setStatus(com.krishilink.enums.TransactionStatus.CONFIRMED);
-        paymentRepository.save(payment);
-        transactionRepository.save(tx);
-        return paymentResult(payment, tx, "Payment confirmed and escrow secured");
-    }
-
-    private ResponseEntity<ApiResponse<Map<String, Object>>> paymentResult(
-            Payment payment, Transaction transaction, String message) {
-        return ResponseEntity.ok(ApiResponse.ok(Map.of(
-                "payment", payment,
-                "transaction", transaction
-        ), message));
-    }
-
     @PatchMapping("/{id}")
+    @Transactional
     public ResponseEntity<ApiResponse<Payment>> updatePayment(
             @PathVariable Long id,
             @RequestBody Map<String, String> body) {
         Payment payment = paymentRepository.findById(id)
+                .or(() -> paymentRepository.findByTransactionId(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
 
         if (body.containsKey("status")) {

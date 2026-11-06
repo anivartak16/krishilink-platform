@@ -11,6 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/lots")
@@ -27,12 +28,8 @@ public class LotController {
             @RequestParam(required = false) Double minPrice,
             @RequestParam(required = false) Double maxPrice,
             @RequestParam(required = false) Long owner,
-            @RequestParam(required = false) String search,
-            @RequestParam(defaultValue = "false") boolean mine,
-            @AuthenticationPrincipal UserPrincipal principal) {
-        List<Lot> lots = mine && principal != null
-                ? lotService.getLotsForOwner(principal.getUser())
-                : lotService.getLots(commodity, status, farmingType, minPrice, maxPrice, owner, search);
+            @RequestParam(required = false) String search) {
+        List<Lot> lots = lotService.getLots(commodity, status, farmingType, minPrice, maxPrice, owner, search);
         return ResponseEntity.ok(ApiResponse.ok(lots));
     }
 
@@ -67,18 +64,20 @@ public class LotController {
     }
 
     @PostMapping("/{id}/publish")
-    public ResponseEntity<ApiResponse<Lot>> publish(
+    public ResponseEntity<ApiResponse<Lot>> publishLot(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                lotService.publishLot(id, principal.getUser()), "Lot published successfully"));
+        Lot lot = lotService.publishLot(id, principal.getUser());
+        return ResponseEntity.ok(ApiResponse.ok(lot, "Lot published successfully"));
     }
 
     @PostMapping("/{id}/verify-request")
-    public ResponseEntity<ApiResponse<Lot>> requestVerification(
+    public ResponseEntity<ApiResponse<Lot>> sendForVerification(
             @PathVariable Long id,
-            @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                lotService.requestVerification(id, principal.getUser()), "Verification request submitted"));
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody(required = false) Map<String, String> body) {
+        String notes = body != null ? body.get("notes") : null;
+        Lot lot = lotService.sendForVerification(id, principal.getUser(), notes);
+        return ResponseEntity.ok(ApiResponse.ok(lot, "Lot submitted for quality verification"));
     }
 }

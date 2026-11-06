@@ -2,13 +2,16 @@ package com.krishilink.controller;
 
 import com.krishilink.dto.ApiResponse;
 import com.krishilink.entity.*;
+import com.krishilink.enums.DemandStatus;
 import com.krishilink.enums.LotStatus;
+import com.krishilink.enums.OfferStatus;
 import com.krishilink.enums.Role;
 import com.krishilink.enums.VerificationStatus;
 import com.krishilink.exception.BadRequestException;
 import com.krishilink.exception.ResourceNotFoundException;
 import com.krishilink.repository.*;
 import com.krishilink.security.UserPrincipal;
+import com.krishilink.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -23,198 +26,227 @@ import java.util.*;
 @RequestMapping("/api/fpo")
 @RequiredArgsConstructor
 public class FpoController {
+
     private final LotRepository lotRepository;
     private final UserRepository userRepository;
-    private final FpoMembershipRepository membershipRepository;
+    private final FpoMembershipRepository fpoMembershipRepository;
     private final DemandRepository demandRepository;
     private final OfferRepository offerRepository;
     private final NotificationRepository notificationRepository;
+    private final AuthService authService;
 
-    @GetMapping("/lots")
-    public ResponseEntity<ApiResponse<List<Lot>>> getFpoLots(@AuthenticationPrincipal UserPrincipal principal) {
-        User fpo = requireFpo(principal.getUser());
-        List<Long> memberIds = membershipRepository.findByFpoOrderByCreatedAtDesc(fpo).stream()
-                .map(m -> m.getFarmer().getId()).toList();
-        List<Lot> lots = new ArrayList<>(lotRepository.findByOwner(fpo));
-        if (!memberIds.isEmpty()) {
-            lots.addAll(lotRepository.findAll().stream()
-                    .filter(l -> l.getOwner() != null && memberIds.contains(l.getOwner().getId()))
-                    .filter(l -> l.getStatus() == LotStatus.AVAILABLE || l.getStatus() == LotStatus.PARTIALLY_SOLD)
-                    .toList());
-        }
-        return ResponseEntity.ok(ApiResponse.ok(lots));
+    @GetMapping("/members")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getFpoMembers(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        List<FpoMembership> memberships = fpoMembershipRepository.findByFpo(principal.getUser());
+        List<Map<String, Object>> members = memberships.stream()
+                .map(m -> authService.sanitizeUser(m.getFarmer()))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(members));
     }
 
     @GetMapping("/farmers")
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> searchFarmers(
-            @RequestParam(defaultValue = "") String search) {
-        List<User> farmers = search.isBlank() ? userRepository.findByRole(Role.FARMER)
-                : userRepository.searchByRole(Role.FARMER, search.trim());
-        return ResponseEntity.ok(ApiResponse.ok(farmers.stream().map(this::userView).toList()));
-    }
-
-    @GetMapping("/members")
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getMembers(
-            @AuthenticationPrincipal UserPrincipal principal) {
-        User fpo = requireFpo(principal.getUser());
-        return ResponseEntity.ok(ApiResponse.ok(membershipRepository.findByFpoOrderByCreatedAtDesc(fpo).stream()
-                .map(m -> {
-                    Map<String, Object> view = userView(m.getFarmer());
-                    view.put("memberId", m.getId());
-                    view.put("farmerId", m.getFarmer().getId());
-                    view.put("_id", m.getId().toString());
-                    view.put("ekycVerified", m.getEkycVerified());
-                    return view;
-                }).toList()));
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getFpoFarmers(
+            @RequestParam(required = false) String search) {
+        String s = search != null ? search.toLowerCase().trim() : "";
+        List<Map<String, Object>> farmers = userRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.FARMER)
+                .filter(u -> s.isEmpty() ||
+                        (u.getName() != null && u.getName().toLowerCase().contains(s)) ||
+                        (u.getEmail() != null && u.getEmail().toLowerCase().contains(s)) ||
+                        (u.getLocation() != null && u.getLocation().toLowerCase().contains(s)) ||
+                        (u.getDistrict() != null && u.getDistrict().toLowerCase().contains(s)))
+                .limit(30)
+                .map(authService::sanitizeUser)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(farmers));
     }
 
     @PostMapping("/members")
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> addMember(
-            @AuthenticationPrincipal UserPrincipal principal, @RequestBody Map<String, Object> body) {
-        User fpo = requireFpo(principal.getUser());
-        User farmer = userRepository.findById(id(body.get("farmerId"), "farmerId"))
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, Object> body) {
+        Long farmerId = Long.valueOf(body.get("farmerId").toString());
+        User farmer = userRepository.findById(farmerId)
+                .filter(u -> u.getRole() == Role.FARMER)
                 .orElseThrow(() -> new ResourceNotFoundException("Farmer not found"));
-        if (farmer.getRole() != Role.FARMER) throw new BadRequestException("Only farmers can join an FPO");
-        if (membershipRepository.existsByFpoAndFarmer(fpo, farmer))
-            throw new BadRequestException("Farmer is already an FPO member");
-        membershipRepository.save(FpoMembership.builder().fpo(fpo).farmer(farmer).build());
-        return ResponseEntity.ok(ApiResponse.ok(userView(farmer), "Farmer added to FPO"));
+
+        if (!fpoMembershipRepository.existsByFpoAndFarmer(principal.getUser(), farmer)) {
+            FpoMembership m = FpoMembership.builder()
+                    .fpo(principal.getUser())
+                    .farmer(farmer)
+                    .build();
+            fpoMembershipRepository.save(m);
+        }
+
+        return ResponseEntity.ok(ApiResponse.ok(authService.sanitizeUser(farmer), "Farmer added to FPO"));
     }
 
-    @DeleteMapping("/members/{id}")
+    @DeleteMapping("/members/{farmerId}")
     @Transactional
-    public ResponseEntity<ApiResponse<Map<String, Object>>> removeMember(
-            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id) {
-        User fpo = requireFpo(principal.getUser());
-        FpoMembership membership = findMembership(fpo, id);
-        if (!membership.getFpo().getId().equals(fpo.getId())) throw new BadRequestException("Member is not in your FPO");
-        Map<String, Object> result = userView(membership.getFarmer());
-        membershipRepository.delete(membership);
-        return ResponseEntity.ok(ApiResponse.ok(result, "Farmer removed from FPO"));
+    public ResponseEntity<ApiResponse<String>> removeMember(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long farmerId) {
+        User farmer = userRepository.findById(farmerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farmer not found"));
+        fpoMembershipRepository.deleteByFpoAndFarmer(principal.getUser(), farmer);
+        return ResponseEntity.ok(ApiResponse.ok("Farmer removed from FPO"));
     }
 
-    @GetMapping("/members/{id}")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getMember(
-            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id) {
-        User fpo = requireFpo(principal.getUser());
-        FpoMembership membership = findMembership(fpo, id);
-        Map<String, Object> result = userView(membership.getFarmer());
-        result.put("memberId", membership.getId());
-        result.put("ekycVerified", membership.getEkycVerified());
-        return ResponseEntity.ok(ApiResponse.ok(result));
-    }
-
-    @PostMapping("/members/{id}/verify-ekyc")
+    @PostMapping("/members/{farmerId}/verify-ekyc")
     @Transactional
-    public ResponseEntity<ApiResponse<Map<String, Object>>> verifyMember(
-            @AuthenticationPrincipal UserPrincipal principal, @PathVariable Long id) {
-        User fpo = requireFpo(principal.getUser());
-        FpoMembership membership = findMembership(fpo, id);
-        if (!membership.getFpo().getId().equals(fpo.getId())) throw new BadRequestException("Member is not in your FPO");
-        User farmer = membership.getFarmer();
-        membership.setEkycVerified(true);
-        farmer.setKycVerified(true);
-        farmer.setEkycStatus("VERIFIED");
-        farmer.setEkycVerifiedAt(LocalDateTime.now());
+    public ResponseEntity<ApiResponse<Map<String, Object>>> verifyMemberFarmer(
+            @PathVariable Long farmerId) {
+        User farmer = userRepository.findById(farmerId)
+                .filter(u -> u.getRole() == Role.FARMER)
+                .orElseThrow(() -> new ResourceNotFoundException("Farmer not found"));
+
         farmer.setVerification(VerificationStatus.VERIFIED);
-        farmer.setVerificationBadge("FPO_FIELD_VERIFIED_FARMER");
-        membershipRepository.save(membership);
-        userRepository.save(farmer);
-        return ResponseEntity.ok(ApiResponse.ok(userView(farmer), "Member e-KYC verified"));
+        farmer.setVerificationBadge("EKYC_VERIFIED_FARMER");
+        farmer.setEkycStatus("VERIFIED");
+        farmer.setEkycType("FPO_FIELD_VERIFICATION");
+        farmer.setEkycIdNumber("FPO-VER-" + farmer.getId());
+        farmer.setEkycVerifiedAt(LocalDateTime.now());
+        farmer = userRepository.save(farmer);
+
+        return ResponseEntity.ok(ApiResponse.ok(authService.sanitizeUser(farmer), "Farmer e-KYC certified successfully by FPO"));
+    }
+
+    @GetMapping("/lots")
+    public ResponseEntity<ApiResponse<List<Lot>>> getFpoLots(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        List<FpoMembership> memberships = fpoMembershipRepository.findByFpo(principal.getUser());
+        List<User> owners = new ArrayList<>();
+        owners.add(principal.getUser());
+        memberships.forEach(m -> owners.add(m.getFarmer()));
+
+        List<Lot> lots = lotRepository.findAll().stream()
+                .filter(l -> owners.contains(l.getOwner()))
+                .filter(l -> l.getStatus() == LotStatus.AVAILABLE || l.getStatus() == LotStatus.PARTIALLY_SOLD)
+                .toList();
+
+        return ResponseEntity.ok(ApiResponse.ok(lots));
     }
 
     @PostMapping("/aggregate")
     @Transactional
-    public ResponseEntity<ApiResponse<Lot>> aggregate(
-            @AuthenticationPrincipal UserPrincipal principal, @RequestBody Map<String, Object> body) {
-        User fpo = requireFpo(principal.getUser());
-        Object rawIds = body.get("lotIds");
-        if (!(rawIds instanceof List<?> ids) || ids.size() < 2)
-            throw new BadRequestException("Select at least two lots to aggregate");
-        List<Long> memberIds = membershipRepository.findByFpoOrderByCreatedAtDesc(fpo).stream()
-                .map(m -> m.getFarmer().getId()).toList();
-        List<Lot> lots = new ArrayList<>();
-        for (Object raw : ids) {
-            Lot lot = lotRepository.findById(id(raw, "lotIds"))
-                    .orElseThrow(() -> new ResourceNotFoundException("Lot not found"));
-            boolean allowed = lot.getOwner().getId().equals(fpo.getId()) || memberIds.contains(lot.getOwner().getId());
-            if (!allowed || (lot.getStatus() != LotStatus.AVAILABLE && lot.getStatus() != LotStatus.PARTIALLY_SOLD))
-                throw new BadRequestException("Selected lot is not available to this FPO");
-            lots.add(lot);
+    public ResponseEntity<ApiResponse<Lot>> aggregateLots(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, Object> body) {
+        List<?> rawIds = (List<?>) body.get("lotIds");
+        if (rawIds == null || rawIds.isEmpty()) {
+            throw new BadRequestException("Select at least two farmer lots to aggregate");
         }
-        String commodity = lots.get(0).getCommodity();
-        if (lots.stream().anyMatch(l -> !commodity.equalsIgnoreCase(l.getCommodity())))
-            throw new BadRequestException("All aggregated lots must contain the same commodity");
-        double quantity = lots.stream().mapToDouble(l -> l.getRemainingQuantity() == null ? 0 : l.getRemainingQuantity()).sum();
-        if (quantity <= 0) throw new BadRequestException("Selected lots have no remaining quantity");
-        double expectedPrice = body.get("expectedPrice") == null ? lots.get(0).getExpectedPrice()
-                : number(body.get("expectedPrice"), "expectedPrice");
-        Lot aggregate = Lot.builder().owner(fpo).ownerType("FPO").commodity(commodity)
-                .quantity(quantity).remainingQuantity(quantity).unit(lots.get(0).getUnit())
-                .location(fpo.getLocation()).latitude(fpo.getLatitude()).longitude(fpo.getLongitude())
-                .expectedPrice(expectedPrice).quality(lots.get(0).getQuality())
-                .availableUntil(LocalDate.now().plusDays(30)).farmingType(lots.get(0).getFarmingType())
-                .status(LotStatus.AVAILABLE).build();
-        for (Lot lot : lots) {
-            lot.setRemainingQuantity(0.0);
-            lot.setStatus(LotStatus.SOLD);
+
+        List<Long> lotIds = rawIds.stream().map(o -> Long.valueOf(o.toString())).toList();
+        List<Lot> source = lotRepository.findAllById(lotIds);
+
+        if (source.isEmpty()) {
+            throw new BadRequestException("No valid lots found for aggregation");
         }
-        lotRepository.saveAll(lots);
-        return ResponseEntity.ok(ApiResponse.ok(lotRepository.save(aggregate), "Aggregate lot created"));
+
+        String commodity = source.get(0).getCommodity();
+        if (source.stream().anyMatch(l -> !l.getCommodity().equalsIgnoreCase(commodity))) {
+            throw new BadRequestException("Only one commodity can be aggregated at a time");
+        }
+
+        double totalQty = source.stream().mapToDouble(l -> l.getRemainingQuantity() != null ? l.getRemainingQuantity() : l.getQuantity()).sum();
+        double expectedPrice = body.get("expectedPrice") != null && Double.parseDouble(body.get("expectedPrice").toString()) > 0 ?
+                Double.parseDouble(body.get("expectedPrice").toString()) :
+                source.stream().mapToDouble(Lot::getExpectedPrice).average().orElse(25.0);
+
+        Lot aggregated = Lot.builder()
+                .owner(principal.getUser())
+                .ownerType("FPO")
+                .commodity(commodity)
+                .quantity(totalQty)
+                .remainingQuantity(totalQty)
+                .expectedPrice(expectedPrice)
+                .unit(source.get(0).getUnit())
+                .location(principal.getUser().getLocation())
+                .latitude(principal.getUser().getLatitude())
+                .longitude(principal.getUser().getLongitude())
+                .quality(source.get(0).getQuality())
+                .status(LotStatus.AVAILABLE)
+                .availableUntil(LocalDate.now().plusDays(14))
+                .build();
+        aggregated = lotRepository.save(aggregated);
+
+        for (Lot s : source) {
+            s.setStatus(LotStatus.CANCELLED);
+            lotRepository.save(s);
+        }
+
+        return ResponseEntity.ok(ApiResponse.ok(aggregated, "FPO aggregated lot created successfully"));
+    }
+
+    @GetMapping("/matches")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getFpoMatches(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        List<Lot> lots = getFpoLots(principal).getBody().getData();
+        List<Demand> demands = demandRepository.findByStatus(DemandStatus.ACTIVE);
+
+        List<Map<String, Object>> matches = new ArrayList<>();
+        for (Demand demand : demands) {
+            for (Lot lot : lots) {
+                if (lot.getCommodity().equalsIgnoreCase(demand.getCommodity())) {
+                    matches.add(Map.of(
+                            "demand", demand,
+                            "lot", lot,
+                            "matchScore", 85,
+                            "isFpoAggregate", lot.getOwner().getId().equals(principal.getUser().getId())
+                    ));
+                }
+            }
+        }
+
+        return ResponseEntity.ok(ApiResponse.ok(Map.of(
+                "fpoLotsCount", lots.size(),
+                "activeDemandsCount", demands.size(),
+                "matches", matches,
+                "demands", demands,
+                "fpoLots", lots
+        )));
     }
 
     @PostMapping("/connect")
     @Transactional
-    public ResponseEntity<ApiResponse<Offer>> connect(
-            @AuthenticationPrincipal UserPrincipal principal, @RequestBody Map<String, Object> body) {
-        User seller = principal.getUser();
-        Demand demand = demandRepository.findById(id(body.get("demandId"), "demandId"))
+    public ResponseEntity<ApiResponse<Offer>> connectFpoWithBuyer(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, Object> body) {
+        Long demandId = Long.valueOf(body.get("demandId").toString());
+        Demand demand = demandRepository.findById(demandId)
                 .orElseThrow(() -> new ResourceNotFoundException("Demand not found"));
-        double quantity = number(body.get("proposedQuantity"), "proposedQuantity");
-        double price = number(body.get("proposedPrice"), "proposedPrice");
-        Lot lot = lotRepository.findByOwner(seller).stream()
-                .filter(l -> l.getCommodity().equalsIgnoreCase(demand.getCommodity()))
-                .filter(l -> l.getStatus() == LotStatus.AVAILABLE || l.getStatus() == LotStatus.PARTIALLY_SOLD)
-                .filter(l -> l.getRemainingQuantity() != null && l.getRemainingQuantity() >= quantity)
-                .findFirst().orElseThrow(() -> new BadRequestException("No matching available lot for this proposal"));
-        Offer offer = offerRepository.save(Offer.builder().lot(lot).buyer(demand.getBuyer()).quantity(quantity)
-                .pricePerUnit(price).totalAmount(quantity * price)
-                .message(body.get("message") == null ? null : body.get("message").toString())
-                .validUntil(demand.getDeadline()).build());
-        notificationRepository.save(Notification.builder().user(demand.getBuyer()).type("SUPPLY_PROPOSAL")
-                .message(seller.getName() + " sent a supply proposal for " + quantity + " kg " + lot.getCommodity())
-                .read(false).build());
-        return ResponseEntity.ok(ApiResponse.ok(offer, "Supply proposal sent"));
-    }
 
-    private static User requireFpo(User user) {
-        if (user == null || user.getRole() != Role.FPO) throw new BadRequestException("FPO access is required");
-        return user;
-    }
-    private FpoMembership findMembership(User fpo, Long id) {
-        return membershipRepository.findById(id)
-                .filter(m -> m.getFpo().getId().equals(fpo.getId()))
-                .or(() -> membershipRepository.findByFpoAndFarmerId(fpo, id))
-                .orElseThrow(() -> new ResourceNotFoundException("FPO member not found"));
-    }
-    private Map<String, Object> userView(User user) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", user.getId()); map.put("_id", user.getId().toString());
-        map.put("name", user.getName()); map.put("email", user.getEmail()); map.put("role", user.getRole().name());
-        map.put("phone", user.getPhone()); map.put("location", user.getLocation()); map.put("primaryCrop", user.getPrimaryCrop());
-        map.put("verification", user.getVerification().name()); map.put("verificationBadge", user.getVerificationBadge());
-        map.put("kycVerified", user.getKycVerified()); map.put("ekycStatus", user.getEkycStatus());
-        return map;
-    }
-    private static Long id(Object value, String field) {
-        if (value == null) throw new BadRequestException(field + " is required");
-        try { return Long.valueOf(value.toString()); }
-        catch (NumberFormatException ex) { throw new BadRequestException(field + " must be numeric"); }
-    }
-    private static double number(Object value, String field) {
-        if (value == null) throw new BadRequestException(field + " is required");
-        try { return Double.parseDouble(value.toString()); }
-        catch (NumberFormatException ex) { throw new BadRequestException(field + " must be numeric"); }
+        Long lotId = body.get("lotId") != null ? Long.valueOf(body.get("lotId").toString()) : null;
+        Lot lot = lotId != null ? lotRepository.findById(lotId).orElse(null) : null;
+
+        double price = body.get("proposedPrice") != null ?
+                Double.parseDouble(body.get("proposedPrice").toString()) : demand.getMaxPrice();
+        double qty = body.get("proposedQuantity") != null ?
+                Double.parseDouble(body.get("proposedQuantity").toString()) : demand.getRequiredQuantity();
+
+        Offer offer = Offer.builder()
+                .lot(lot)
+                .buyer(demand.getBuyer())
+                .quantity(qty)
+                .pricePerUnit(price)
+                .totalAmount(qty * price)
+                .message(body.get("message") != null ? body.get("message").toString() :
+                        "FPO Supply Proposal from " + principal.getUser().getName())
+                .status(OfferStatus.PENDING)
+                .validUntil(LocalDate.now().plusDays(7))
+                .build();
+        offer = offerRepository.save(offer);
+
+        Notification notif = Notification.builder()
+                .user(demand.getBuyer())
+                .type("NEW_OFFER")
+                .message("Direct FPO Supply Proposal from " + principal.getUser().getName() + " for " + demand.getCommodity())
+                .build();
+        notificationRepository.save(notif);
+
+        return ResponseEntity.ok(ApiResponse.ok(offer, "Proposal sent to buyer successfully"));
     }
 }

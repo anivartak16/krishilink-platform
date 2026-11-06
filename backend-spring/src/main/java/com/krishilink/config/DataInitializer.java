@@ -35,6 +35,8 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        ensureKvkUser();
+
         if (userRepository.count() > 0) {
             log.info("Database already initialized. Skipping seed.");
             return;
@@ -414,5 +416,27 @@ public class DataInitializer implements CommandLineRunner {
         logisticsProviderRepository.saveAll(List.of(lp1, lp2));
 
         log.info("Database initialization completed successfully! All demo credentials ready.");
+    }
+
+    private void ensureKvkUser() {
+        if (!userRepository.existsByEmailIgnoreCase("kvk@krishilink.com")) {
+            User kvk = User.builder()
+                    .name("Krishi Vigyan Kendra")
+                    .email("kvk@krishilink.com")
+                    .password(passwordEncoder.encode("Demo@12345"))
+                    .role(Role.KRISHI_KENDRA)
+                    .phone("9876543219")
+                    .location("Indore")
+                    .district("Indore")
+                    .state("Madhya Pradesh")
+                    .organizationName("ICAR - Krishi Vigyan Kendra Indore")
+                    .verification(VerificationStatus.VERIFIED)
+                    .verificationBadge("KVK_CERTIFIED")
+                    .latitude(22.7196)
+                    .longitude(75.8577)
+                    .build();
+            userRepository.save(kvk);
+            log.info("Seeded missing Krishi Kendra user (kvk@krishilink.com)");
+        }
     }
 }

@@ -3,7 +3,6 @@ package com.krishilink.controller;
 import com.krishilink.dto.ApiResponse;
 import com.krishilink.entity.User;
 import com.krishilink.enums.VerificationStatus;
-import com.krishilink.enums.LotStatus;
 import com.krishilink.exception.ResourceNotFoundException;
 import com.krishilink.repository.LotRepository;
 import com.krishilink.repository.TransactionRepository;
@@ -44,42 +43,12 @@ public class AdminController {
         return ResponseEntity.ok(ApiResponse.ok(authService.sanitizeUser(user), "User verified"));
     }
 
-    @PatchMapping("/users/{id}")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> updateUserVerification(
-            @PathVariable Long id, @RequestBody Map<String, Object> body) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        if (body.get("verification") != null) {
-            try {
-                user.setVerification(VerificationStatus.valueOf(body.get("verification").toString().toUpperCase()));
-            } catch (IllegalArgumentException ex) {
-                throw new com.krishilink.exception.BadRequestException("Invalid verification status");
-            }
-        }
-        if (user.getVerification() == VerificationStatus.VERIFIED) user.setVerificationBadge("ADMIN_VERIFIED");
-        return ResponseEntity.ok(ApiResponse.ok(authService.sanitizeUser(userRepository.save(user)), "User verification updated"));
-    }
-
-    @GetMapping("/stats")
+    @GetMapping({"/stats", "/summary"})
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAdminStats() {
         return ResponseEntity.ok(ApiResponse.ok(Map.of(
                 "totalUsers", userRepository.count(),
                 "totalLots", lotRepository.count(),
                 "totalTransactions", transactionRepository.count()
-        )));
-    }
-
-    @GetMapping("/summary")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getAdminSummary() {
-        long activeLots = lotRepository.findByStatusIn(
-                List.of(LotStatus.AVAILABLE, LotStatus.PARTIALLY_SOLD)).size();
-        return ResponseEntity.ok(ApiResponse.ok(Map.of(
-                "totalUsers", userRepository.count(),
-                "totalLots", lotRepository.count(),
-                "activeLots", activeLots,
-                "totalTransactions", transactionRepository.count(),
-                "verifiedUsers", userRepository.findAll().stream()
-                        .filter(u -> u.getVerification() == VerificationStatus.VERIFIED).count()
         )));
     }
 }

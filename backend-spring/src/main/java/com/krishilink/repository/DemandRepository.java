@@ -13,6 +13,7 @@ import java.util.List;
 @Repository
 public interface DemandRepository extends JpaRepository<Demand, Long>, JpaSpecificationExecutor<Demand> {
     List<Demand> findByBuyer(User buyer);
+    List<Demand> findByStatus(DemandStatus status);
     List<Demand> findByStatusIn(Collection<DemandStatus> statuses);
     List<Demand> findByCommodityIgnoreCaseAndStatus(String commodity, DemandStatus status);
 }

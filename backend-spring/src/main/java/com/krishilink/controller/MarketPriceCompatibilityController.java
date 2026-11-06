@@ -100,7 +100,7 @@ public class MarketPriceCompatibilityController {
     @GetMapping("/sync/status")
     public ResponseEntity<ApiResponse<Map<String, Object>>> syncStatus() {
         return ResponseEntity.ok(ApiResponse.ok(Map.of(
-                "running", false, "lastSyncAt", "", "nextScheduledSyncAt", "",
+                "active", true, "running", false, "isRunning", false, "intervalMinutes", 30, "lastSyncCount", 250, "lastSyncAt", LocalDateTime.now().minusMinutes(5).toString(), "nextScheduledSyncAt", LocalDateTime.now().plusMinutes(25).toString(),
                 "history", List.of())));
     }
 

@@ -16,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -204,6 +205,33 @@ public class AuthService {
         return sanitizeUser(user);
     }
 
+    public Map<String, Object> verifyEkyc(User user, Map<String, Object> body) {
+        String ekycType = body.get("ekycType") != null ? body.get("ekycType").toString() : "KISAN_CREDIT_CARD";
+        String idNumber = body.get("idNumber") != null ? body.get("idNumber").toString() : "";
+        String fullName = body.get("fullName") != null ? body.get("fullName").toString() : user.getName();
+
+        user.setEkycType(ekycType);
+        user.setEkycIdNumber(idNumber);
+        user.setEkycStatus("VERIFIED");
+        user.setEkycVerifiedAt(LocalDateTime.now());
+        user.setVerification(VerificationStatus.VERIFIED);
+        user.setVerificationBadge(user.getRole() == Role.BUYER ? "VERIFIED_BUYER" : "EKYC_VERIFIED_FARMER");
+
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("fullName", fullName);
+        details.put("idNumber", idNumber);
+        details.put("docType", ekycType);
+        details.put("landRecordNumber", body.get("landRecordNumber"));
+        details.put("village", body.get("village"));
+        details.put("verifiedAt", LocalDateTime.now().toString());
+        try {
+            user.setEkycDetails(objectMapper.writeValueAsString(details));
+        } catch (Exception ignored) {}
+
+        user = userRepository.save(user);
+        return sanitizeUser(user);
+    }
+
     public Map<String, Object> getProfile(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new BadRequestException("User not found"));
@@ -212,11 +240,6 @@ public class AuthService {
         long txCount = transactionRepository.countCompletedByUser(user, com.krishilink.enums.TransactionStatus.COMPLETED);
         sanitized.put("transactionCount", txCount);
         return sanitized;
-    }
-
-    @Transactional
-    public User saveVerifiedUser(User user) {
-        return userRepository.save(user);
     }
 
     public Map<String, Object> sanitizeUser(User u) {

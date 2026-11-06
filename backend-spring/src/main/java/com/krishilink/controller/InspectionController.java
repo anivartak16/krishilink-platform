@@ -2,10 +2,9 @@ package com.krishilink.controller;
 
 import com.krishilink.dto.ApiResponse;
 import com.krishilink.entity.Lot;
+import com.krishilink.entity.Notification;
 import com.krishilink.entity.Quality;
-import com.krishilink.entity.User;
 import com.krishilink.enums.LotStatus;
-import com.krishilink.enums.Role;
 import com.krishilink.exception.BadRequestException;
 import com.krishilink.exception.ResourceNotFoundException;
 import com.krishilink.repository.LotRepository;
@@ -26,85 +25,101 @@ import java.util.Map;
 @RequestMapping("/api/inspections")
 @RequiredArgsConstructor
 public class InspectionController {
+
     private final LotRepository lotRepository;
     private final QualityRepository qualityRepository;
     private final NotificationRepository notificationRepository;
 
     @GetMapping("/lots")
     public ResponseEntity<ApiResponse<List<Lot>>> getInspectionLots(
-            @AuthenticationPrincipal UserPrincipal principal) {
-        requireInspector(principal.getUser());
-        return ResponseEntity.ok(ApiResponse.ok(lotRepository.findAll()));
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String commodity) {
+        List<Lot> lots;
+        if (status != null && !status.isBlank()) {
+            LotStatus s = LotStatus.valueOf(status.toUpperCase());
+            lots = lotRepository.findAll().stream()
+                    .filter(l -> l.getStatus() == s)
+                    .filter(l -> commodity == null || commodity.isBlank() || l.getCommodity().equalsIgnoreCase(commodity))
+                    .toList();
+        } else {
+            lots = lotRepository.findAll().stream()
+                    .filter(l -> l.getStatus() == LotStatus.PENDING_VERIFICATION ||
+                            l.getStatus() == LotStatus.VERIFIED ||
+                            l.getStatus() == LotStatus.REJECTED ||
+                            l.getStatus() == LotStatus.AVAILABLE ||
+                            l.getStatus() == LotStatus.PARTIALLY_SOLD)
+                    .filter(l -> commodity == null || commodity.isBlank() || l.getCommodity().equalsIgnoreCase(commodity))
+                    .toList();
+        }
+        return ResponseEntity.ok(ApiResponse.ok(lots));
     }
 
     @PostMapping
     @Transactional
-    public ResponseEntity<ApiResponse<Lot>> inspect(
+    public ResponseEntity<ApiResponse<Lot>> createInspection(
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestBody Map<String, Object> body) {
-        User inspector = requireInspector(principal.getUser());
-        Long lotId = longValue(body.get("lotId"));
+        Long lotId = Long.valueOf(body.get("lotId").toString());
         Lot lot = lotRepository.findById(lotId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lot not found"));
-        String decision = text(body.get("inspectionStatus"), "inspectionStatus").toUpperCase();
-        if (!decision.equals("VERIFIED") && !decision.equals("REJECTED") && !decision.equals("PENDING")) {
-            throw new BadRequestException("inspectionStatus must be VERIFIED, REJECTED, or PENDING");
-        }
+
+        String inspectionStatus = body.get("inspectionStatus") != null ?
+                body.get("inspectionStatus").toString() : "VERIFIED";
+        String grade = body.get("grade") != null ? body.get("grade").toString() : "Grade A";
+        Double moisture = body.get("moisture") != null && !body.get("moisture").toString().isBlank() ?
+                Double.valueOf(body.get("moisture").toString()) : 12.0;
+        Double foreignMatter = body.get("foreignMatter") != null && !body.get("foreignMatter").toString().isBlank() ?
+                Double.valueOf(body.get("foreignMatter").toString()) : 1.0;
+        Double damaged = body.get("damagedPercentage") != null && !body.get("damagedPercentage").toString().isBlank() ?
+                Double.valueOf(body.get("damagedPercentage").toString()) : 0.5;
+        String defects = body.get("defects") != null ? body.get("defects").toString() : "";
+        String grainImage = body.get("grainImage") != null ? body.get("grainImage").toString() : null;
+        String notes = body.get("inspectionNotes") != null ? body.get("inspectionNotes").toString() : "";
 
         Quality quality = lot.getQuality();
         if (quality == null) {
-            quality = Quality.builder().grade(textOr(body.get("grade"), "Grade A")).build();
-            lot.setQuality(quality);
+            quality = new Quality();
         }
-        quality.setGrade(textOr(body.get("grade"), quality.getGrade()));
-        quality.setMoisture(number(body.get("moisture"), quality.getMoisture()));
-        quality.setForeignMatter(number(body.get("foreignMatter"), quality.getForeignMatter()));
-        quality.setDamagedPercentage(number(body.get("damagedPercentage"), quality.getDamagedPercentage()));
-        quality.setDefects(textOrNull(body.get("defects")));
-        quality.setInspectionNotes(textOrNull(body.get("inspectionNotes")));
-        quality.setGrainImage(textOrNull(body.get("grainImage")));
-        quality.setInspectionStatus(decision);
+
+        String centerName = principal != null && principal.getUser().getOrganizationName() != null ?
+                principal.getUser().getOrganizationName() : "Krishi Vigyan Kendra";
+
+        quality.setGrade("REJECTED".equalsIgnoreCase(inspectionStatus) ? "Rejected" : grade);
+        quality.setMoisture(moisture);
+        quality.setForeignMatter(foreignMatter);
+        quality.setDamagedPercentage(damaged);
+        quality.setDefects(defects);
+        quality.setGrainImage(grainImage);
+        quality.setInspectionNotes(notes);
+        quality.setInspectionStatus(inspectionStatus);
+        quality.setInspectedByName(centerName);
         quality.setInspectedAt(LocalDateTime.now());
-        quality.setInspectedByName(inspector.getName());
-        qualityRepository.save(quality);
+        quality.setCertification("VERIFIED".equalsIgnoreCase(inspectionStatus) ?
+                "Krishi Vigyan Kendra Certified (" + centerName + ")" :
+                "Inspection Rejected (" + centerName + ")");
+        quality = qualityRepository.save(quality);
 
-        lot.setStatus(decision.equals("VERIFIED") ? LotStatus.VERIFIED :
-                decision.equals("REJECTED") ? LotStatus.REJECTED : LotStatus.PENDING_VERIFICATION);
+        lot.setQuality(quality);
+        if ("VERIFIED".equalsIgnoreCase(inspectionStatus)) {
+            lot.setStatus(LotStatus.VERIFIED);
+        } else if ("REJECTED".equalsIgnoreCase(inspectionStatus)) {
+            lot.setStatus(LotStatus.REJECTED);
+        }
         lot = lotRepository.save(lot);
-        if (decision.equals("VERIFIED") || decision.equals("REJECTED")) {
-            notificationRepository.save(com.krishilink.entity.Notification.builder()
-                    .user(lot.getOwner()).type("LOT_INSPECTION")
-                    .message("Your " + lot.getCommodity() + " lot was " + decision.toLowerCase() + " by " + inspector.getName())
-                    .read(false).build());
-        }
-        return ResponseEntity.ok(ApiResponse.ok(lot, "Inspection recorded"));
-    }
 
-    private static User requireInspector(User user) {
-        if (user == null || (user.getRole() != Role.KRISHI_KENDRA && user.getRole() != Role.ADMIN)) {
-            throw new BadRequestException("Only an authorized inspection centre can inspect lots");
+        if (lot.getOwner() != null) {
+            Notification notif = Notification.builder()
+                    .user(lot.getOwner())
+                    .type("VERIFIED".equalsIgnoreCase(inspectionStatus) ? "LOT_VERIFIED" : "LOT_INSPECTION_REJECTED")
+                    .message("VERIFIED".equalsIgnoreCase(inspectionStatus) ?
+                            "✓ Your lot of " + lot.getCommodity() + " (" + lot.getRemainingQuantity() + " kg) was verified by " + centerName + " as " + grade + ". You can now list it on the marketplace!" :
+                            "✕ Inspection Notice: Your lot of " + lot.getCommodity() + " was rejected by " + centerName + ". Reason: " + (defects.isBlank() ? notes : defects))
+                    .build();
+            notificationRepository.save(notif);
         }
-        return user;
-    }
 
-    private static Long longValue(Object value) {
-        if (value == null) throw new BadRequestException("lotId is required");
-        try { return Long.valueOf(value.toString()); }
-        catch (NumberFormatException ex) { throw new BadRequestException("lotId must be numeric"); }
-    }
-    private static String text(Object value, String field) {
-        if (value == null || value.toString().isBlank()) throw new BadRequestException(field + " is required");
-        return value.toString().trim();
-    }
-    private static String textOr(Object value, String fallback) {
-        return value == null || value.toString().isBlank() ? fallback : value.toString().trim();
-    }
-    private static String textOrNull(Object value) {
-        return value == null || value.toString().isBlank() ? null : value.toString().trim();
-    }
-    private static Double number(Object value, Double fallback) {
-        if (value == null || value.toString().isBlank()) return fallback;
-        try { return Double.valueOf(value.toString()); }
-        catch (NumberFormatException ex) { throw new BadRequestException("Inspection measurements must be numeric"); }
+        return ResponseEntity.ok(ApiResponse.ok(lot, "VERIFIED".equalsIgnoreCase(inspectionStatus) ?
+                "Quality verified and certified! Farmer can now list produce on the marketplace." :
+                "Inspection recorded as rejected."));
     }
 }

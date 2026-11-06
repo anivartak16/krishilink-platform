@@ -1,12 +1,11 @@
 package com.krishilink.controller;
 
 import com.krishilink.dto.ApiResponse;
-import com.krishilink.entity.LogisticsProvider;
-import com.krishilink.repository.LogisticsProviderRepository;
 import com.krishilink.entity.LogisticsBooking;
-import com.krishilink.repository.LogisticsBookingRepository;
-import com.krishilink.exception.BadRequestException;
+import com.krishilink.entity.LogisticsProvider;
 import com.krishilink.exception.ResourceNotFoundException;
+import com.krishilink.repository.LogisticsBookingRepository;
+import com.krishilink.repository.LogisticsProviderRepository;
 import com.krishilink.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -23,55 +22,49 @@ import java.util.Map;
 public class LogisticsController {
 
     private final LogisticsProviderRepository logisticsProviderRepository;
-    private final LogisticsBookingRepository bookingRepository;
+    private final LogisticsBookingRepository logisticsBookingRepository;
 
-    @GetMapping({"", "/providers"})
+    @GetMapping
     public ResponseEntity<ApiResponse<List<LogisticsProvider>>> getProviders() {
-        return ResponseEntity.ok(ApiResponse.ok(logisticsProviderRepository.findByAvailabilityTrue()));
+        return ResponseEntity.ok(ApiResponse.ok(logisticsProviderRepository.findAll()));
+    }
+
+    @PostMapping("/book")
+    @Transactional
+    public ResponseEntity<ApiResponse<LogisticsBooking>> bookLogistics(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, Object> body) {
+        Long providerId = Long.valueOf(body.get("providerId").toString());
+        LogisticsProvider provider = logisticsProviderRepository.findById(providerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Logistics provider not found"));
+
+        Double qty = body.get("quantity") != null ? Double.valueOf(body.get("quantity").toString()) : 100.0;
+        Double dist = body.get("distanceKm") != null ? Double.valueOf(body.get("distanceKm").toString()) : 50.0;
+        String pickup = body.get("pickupLocation") != null ? body.get("pickupLocation").toString() : principal.getUser().getLocation();
+        String delivery = body.get("deliveryLocation") != null ? body.get("deliveryLocation").toString() : "Regional Mandi";
+        Double cost = body.get("estimatedCost") != null ?
+                Double.valueOf(body.get("estimatedCost").toString()) :
+                (provider.getPricePerKm() != null ? provider.getPricePerKm() * dist : 15.0 * dist);
+
+        LogisticsBooking booking = LogisticsBooking.builder()
+                .provider(provider)
+                .user(principal.getUser())
+                .pickupLocation(pickup)
+                .deliveryLocation(delivery)
+                .quantity(qty)
+                .distanceKm(dist)
+                .estimatedCost(cost)
+                .status("BOOKED")
+                .build();
+        booking = logisticsBookingRepository.save(booking);
+
+        return ResponseEntity.ok(ApiResponse.ok(booking, "Logistics booked successfully"));
     }
 
     @GetMapping("/bookings")
     public ResponseEntity<ApiResponse<List<LogisticsBooking>>> getBookings(
             @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                bookingRepository.findByUserOrderByCreatedAtDesc(principal.getUser())));
-    }
-
-    @PostMapping("/book")
-    @Transactional
-    public ResponseEntity<ApiResponse<LogisticsBooking>> book(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody Map<String, Object> body) {
-        Long providerId = longValue(body.get("providerId"), "providerId");
-        double quantity = doubleValue(body.get("quantity"), "quantity");
-        double distance = doubleValue(body.get("distanceKm"), "distanceKm");
-        String pickup = text(body.get("pickupLocation"), "pickupLocation");
-        String delivery = text(body.get("deliveryLocation"), "deliveryLocation");
-        LogisticsProvider provider = logisticsProviderRepository.findById(providerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Logistics provider not found"));
-        if (!Boolean.TRUE.equals(provider.getAvailability()) || provider.getCapacity() == null
-                || provider.getCapacity() < quantity) {
-            throw new BadRequestException("Provider is unavailable for this quantity");
-        }
-        double rate = provider.getPricePerKm() == null ? 0 : provider.getPricePerKm();
-        LogisticsBooking booking = LogisticsBooking.builder().user(principal.getUser()).provider(provider)
-                .pickupLocation(pickup).deliveryLocation(delivery).quantity(quantity)
-                .distanceKm(distance).estimatedCost(rate * distance).build();
-        return ResponseEntity.ok(ApiResponse.ok(bookingRepository.save(booking), "Logistics booking created"));
-    }
-
-    private static Long longValue(Object value, String field) {
-        if (value == null) throw new BadRequestException(field + " is required");
-        try { return Long.valueOf(value.toString()); }
-        catch (NumberFormatException ex) { throw new BadRequestException(field + " must be numeric"); }
-    }
-    private static double doubleValue(Object value, String field) {
-        if (value == null) throw new BadRequestException(field + " is required");
-        try { return Double.parseDouble(value.toString()); }
-        catch (NumberFormatException ex) { throw new BadRequestException(field + " must be numeric"); }
-    }
-    private static String text(Object value, String field) {
-        if (value == null || value.toString().isBlank()) throw new BadRequestException(field + " is required");
-        return value.toString().trim();
+        List<LogisticsBooking> bookings = logisticsBookingRepository.findByUserOrderByCreatedAtDesc(principal.getUser());
+        return ResponseEntity.ok(ApiResponse.ok(bookings));
     }
 }

@@ -1,17 +1,17 @@
 package com.krishilink.controller;
 
 import com.krishilink.dto.ApiResponse;
-import com.krishilink.entity.Warehouse;
-import com.krishilink.repository.WarehouseRepository;
 import com.krishilink.entity.StorageBooking;
-import com.krishilink.repository.StorageBookingRepository;
+import com.krishilink.entity.Warehouse;
 import com.krishilink.exception.BadRequestException;
 import com.krishilink.exception.ResourceNotFoundException;
+import com.krishilink.repository.StorageBookingRepository;
+import com.krishilink.repository.WarehouseRepository;
 import com.krishilink.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,7 +23,7 @@ import java.util.Map;
 public class StorageController {
 
     private final WarehouseRepository warehouseRepository;
-    private final StorageBookingRepository bookingRepository;
+    private final StorageBookingRepository storageBookingRepository;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<Warehouse>>> getWarehouses(
@@ -34,44 +34,46 @@ public class StorageController {
         return ResponseEntity.ok(ApiResponse.ok(list));
     }
 
+    @PostMapping("/book")
+    @Transactional
+    public ResponseEntity<ApiResponse<StorageBooking>> bookStorage(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, Object> body) {
+        Long warehouseId = Long.valueOf(body.get("warehouseId").toString());
+        Warehouse warehouse = warehouseRepository.findById(warehouseId)
+                .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found"));
+
+        Double qty = Double.valueOf(body.get("quantity").toString());
+        int days = body.get("days") != null ? Integer.parseInt(body.get("days").toString()) : 1;
+
+        if (warehouse.getAvailableCapacity() != null && qty > warehouse.getAvailableCapacity()) {
+            throw new BadRequestException("Requested quantity exceeds available capacity");
+        }
+
+        double cost = qty * days * (warehouse.getPricePerUnitPerDay() != null ? warehouse.getPricePerUnitPerDay() : 2.5);
+
+        StorageBooking booking = StorageBooking.builder()
+                .warehouse(warehouse)
+                .user(principal.getUser())
+                .quantity(qty)
+                .days(days)
+                .estimatedCost(cost)
+                .status("CONFIRMED")
+                .build();
+        booking = storageBookingRepository.save(booking);
+
+        if (warehouse.getAvailableCapacity() != null) {
+            warehouse.setAvailableCapacity(Math.max(0, warehouse.getAvailableCapacity() - qty));
+            warehouseRepository.save(warehouse);
+        }
+
+        return ResponseEntity.ok(ApiResponse.ok(booking, "Storage booked successfully"));
+    }
+
     @GetMapping("/bookings")
     public ResponseEntity<ApiResponse<List<StorageBooking>>> getBookings(
             @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                bookingRepository.findByUserOrderByCreatedAtDesc(principal.getUser())));
-    }
-
-    @PostMapping("/book")
-    @Transactional
-    public ResponseEntity<ApiResponse<StorageBooking>> book(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody Map<String, Object> body) {
-        Long warehouseId = longValue(body.get("warehouseId"), "warehouseId");
-        double quantity = doubleValue(body.get("quantity"), "quantity");
-        int days = (int) doubleValue(body.get("days"), "days");
-        if (quantity <= 0 || days <= 0) throw new BadRequestException("Quantity and days must be positive");
-        Warehouse warehouse = warehouseRepository.findById(warehouseId)
-                .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found"));
-        if (warehouse.getAvailableCapacity() == null || warehouse.getAvailableCapacity() < quantity) {
-            throw new BadRequestException("Requested quantity exceeds available storage capacity");
-        }
-        double price = warehouse.getPricePerUnitPerDay() == null ? 0 : warehouse.getPricePerUnitPerDay();
-        StorageBooking booking = StorageBooking.builder().user(principal.getUser()).warehouse(warehouse)
-                .quantity(quantity).days(days).estimatedCost(price * quantity * days).build();
-        warehouse.setAvailableCapacity(warehouse.getAvailableCapacity() - quantity);
-        warehouseRepository.save(warehouse);
-        return ResponseEntity.ok(ApiResponse.ok(bookingRepository.save(booking), "Storage booking created"));
-    }
-
-    private static Long longValue(Object value, String field) {
-        if (value == null) throw new BadRequestException(field + " is required");
-        try { return Long.valueOf(value.toString()); }
-        catch (NumberFormatException ex) { throw new BadRequestException(field + " must be numeric"); }
-    }
-
-    private static double doubleValue(Object value, String field) {
-        if (value == null) throw new BadRequestException(field + " is required");
-        try { return Double.parseDouble(value.toString()); }
-        catch (NumberFormatException ex) { throw new BadRequestException(field + " must be numeric"); }
+        List<StorageBooking> bookings = storageBookingRepository.findByUserOrderByCreatedAtDesc(principal.getUser());
+        return ResponseEntity.ok(ApiResponse.ok(bookings));
     }
 }
