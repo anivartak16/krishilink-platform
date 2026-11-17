@@ -26,6 +26,7 @@ public class AdminController {
     private final TransactionRepository transactionRepository;
     private final com.krishilink.repository.PaymentRepository paymentRepository;
     private final AuthService authService;
+    private final com.krishilink.service.IntelligenceService intelligenceService;
 
     @GetMapping("/users")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getUsers() {
@@ -117,5 +118,27 @@ public class AdminController {
                 "transactions", txList,
                 "payments", payList
         )));
+    }
+
+    @GetMapping("/msp")
+    public ResponseEntity<ApiResponse<List<com.krishilink.entity.MspBenchmark>>> getAdminMsp() {
+        return ResponseEntity.ok(ApiResponse.ok(intelligenceService.getAllMspBenchmarks()));
+    }
+
+    @PutMapping({"/msp/{commodity}", "/msp"})
+    public ResponseEntity<ApiResponse<com.krishilink.entity.MspBenchmark>> updateMsp(
+            @PathVariable(required = false) String commodity,
+            @RequestBody Map<String, Object> body) {
+        String comm = commodity != null && !commodity.isBlank() ? commodity :
+                (body.get("commodity") != null ? body.get("commodity").toString() : "Wheat");
+        Double mspPerQuintal = body.get("mspPerQuintal") != null && !body.get("mspPerQuintal").toString().isBlank() ?
+                Double.valueOf(body.get("mspPerQuintal").toString()) : null;
+        Double mspPerKg = body.get("mspPerKg") != null && !body.get("mspPerKg").toString().isBlank() ?
+                Double.valueOf(body.get("mspPerKg").toString()) : null;
+        String season = body.get("marketingSeason") != null ? body.get("marketingSeason").toString() : null;
+        Boolean isStatutory = body.get("isStatutoryMsp") != null ? Boolean.valueOf(body.get("isStatutoryMsp").toString()) : null;
+
+        com.krishilink.entity.MspBenchmark updated = intelligenceService.saveOrUpdateMsp(comm, mspPerQuintal, mspPerKg, season, isStatutory);
+        return ResponseEntity.ok(ApiResponse.ok(updated, "MSP Benchmark for " + comm + " updated successfully"));
     }
 }

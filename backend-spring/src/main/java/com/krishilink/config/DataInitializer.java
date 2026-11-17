@@ -31,10 +31,12 @@ public class DataInitializer implements CommandLineRunner {
     private final WarehouseRepository warehouseRepository;
     private final LogisticsProviderRepository logisticsProviderRepository;
     private final NotificationRepository notificationRepository;
+    private final com.krishilink.repository.MspBenchmarkRepository mspBenchmarkRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Override
     public void run(String... args) {
+        ensureMspBenchmarks();
         if (userRepository.count() > 0) {
             ensureKvkUser();
             log.info("Database already initialized. Skipping seed.");
@@ -436,6 +438,27 @@ public class DataInitializer implements CommandLineRunner {
                     .build();
             userRepository.save(kvk);
             log.info("Seeded missing Krishi Kendra user (kvk@krishilink.com)");
+        }
+    }
+
+    private void ensureMspBenchmarks() {
+        if (mspBenchmarkRepository.count() == 0) {
+            log.info("Seeding initial MSP benchmarks table...");
+            List<MspBenchmark> benchmarks = List.of(
+                    MspBenchmark.builder().commodity("Wheat").mspPerQuintal(2275.0).mspPerKg(22.75).marketingSeason("Rabi 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Paddy").mspPerQuintal(2300.0).mspPerKg(23.00).marketingSeason("Kharif 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Rice").mspPerQuintal(2300.0).mspPerKg(23.00).marketingSeason("Kharif 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Soybean").mspPerQuintal(4892.0).mspPerKg(48.92).marketingSeason("Kharif 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Gram").mspPerQuintal(5440.0).mspPerKg(54.40).marketingSeason("Rabi 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Chana").mspPerQuintal(5440.0).mspPerKg(54.40).marketingSeason("Rabi 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Maize").mspPerQuintal(2225.0).mspPerKg(22.25).marketingSeason("Kharif 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Mustard").mspPerQuintal(5650.0).mspPerKg(56.50).marketingSeason("Rabi 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Cotton").mspPerQuintal(7121.0).mspPerKg(71.21).marketingSeason("Kharif 2024-25").isStatutoryMsp(true).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Onion").mspPerQuintal(1800.0).mspPerKg(18.00).marketingSeason("MIS Reference 2024-25").isStatutoryMsp(false).effectiveDate(LocalDate.now()).build(),
+                    MspBenchmark.builder().commodity("Potato").mspPerQuintal(1400.0).mspPerKg(14.00).marketingSeason("MIS Reference 2024-25").isStatutoryMsp(false).effectiveDate(LocalDate.now()).build()
+            );
+            mspBenchmarkRepository.saveAll(benchmarks);
+            log.info("Seeded {} official MSP benchmarks into MySQL database.", benchmarks.size());
         }
     }
 }

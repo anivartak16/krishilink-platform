@@ -46,6 +46,16 @@ public class PriceController {
         return ResponseEntity.ok(ApiResponse.ok(advice));
     }
 
+    @GetMapping("/api/prices/msp")
+    public ResponseEntity<ApiResponse<List<com.krishilink.entity.MspBenchmark>>> getMspBenchmarks() {
+        return ResponseEntity.ok(ApiResponse.ok(intelligenceService.getAllMspBenchmarks()));
+    }
+
+    @GetMapping("/api/prices/msp/{commodity}")
+    public ResponseEntity<ApiResponse<Double>> getMspForCommodity(@PathVariable String commodity) {
+        return ResponseEntity.ok(ApiResponse.ok(intelligenceService.getMsp(commodity)));
+    }
+
     @GetMapping("/api/marketPrice")
     public ResponseEntity<ApiResponse<List<MarketPrice>>> getMarketPrices(
             @RequestParam(required = false) String commodity) {

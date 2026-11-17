@@ -20,6 +20,7 @@ public class IntelligenceService {
     private final MarketPriceRepository marketPriceRepository;
     private final MarketRepository marketRepository;
     private final LotRepository lotRepository;
+    private final MspBenchmarkRepository mspBenchmarkRepository;
 
     private static final Map<String, Double> MSP_BENCHMARKS = Map.ofEntries(
             Map.entry("wheat", 22.75),
@@ -36,6 +37,53 @@ public class IntelligenceService {
             Map.entry("onion", 18.0),
             Map.entry("potato", 14.0)
     );
+
+    /**
+     * Dynamically resolves official MSP from the database table msp_benchmarks,
+     * falling back to static offline benchmarks if not yet populated.
+     */
+    public double getMsp(String commodity) {
+        if (commodity == null || commodity.isBlank()) return 22.75;
+        String comm = commodity.toLowerCase().trim();
+
+        return mspBenchmarkRepository.findByCommodityIgnoreCase(comm)
+                .map(MspBenchmark::getMspPerKg)
+                .orElseGet(() -> MSP_BENCHMARKS.getOrDefault(comm, 22.75));
+    }
+
+    public List<MspBenchmark> getAllMspBenchmarks() {
+        List<MspBenchmark> list = mspBenchmarkRepository.findAllByOrderByCommodityAsc();
+        if (list.isEmpty()) {
+            // Return baseline representations if DB has not been seeded yet
+            return MSP_BENCHMARKS.entrySet().stream()
+                    .map(e -> MspBenchmark.builder()
+                            .commodity(e.getKey().substring(0, 1).toUpperCase() + e.getKey().substring(1))
+                            .mspPerKg(e.getValue())
+                            .mspPerQuintal(e.getValue() * 100.0)
+                            .marketingSeason("Baseline Seed")
+                            .isStatutoryMsp(!List.of("onion", "potato").contains(e.getKey()))
+                            .build())
+                    .toList();
+        }
+        return list;
+    }
+
+    public MspBenchmark saveOrUpdateMsp(String commodity, Double mspPerQuintal, Double mspPerKg, String season, Boolean isStatutory) {
+        String comm = commodity.trim();
+        Double perKg = mspPerKg != null ? mspPerKg : (mspPerQuintal != null ? Math.round((mspPerQuintal / 100.0) * 100.0) / 100.0 : getMsp(comm));
+        Double perQtl = mspPerQuintal != null ? mspPerQuintal : perKg * 100.0;
+
+        MspBenchmark benchmark = mspBenchmarkRepository.findByCommodityIgnoreCase(comm)
+                .orElse(MspBenchmark.builder().commodity(comm).build());
+
+        benchmark.setMspPerKg(perKg);
+        benchmark.setMspPerQuintal(perQtl);
+        if (season != null) benchmark.setMarketingSeason(season);
+        if (isStatutory != null) benchmark.setIsStatutoryMsp(isStatutory);
+        benchmark.setEffectiveDate(LocalDate.now());
+
+        return mspBenchmarkRepository.save(benchmark);
+    }
 
     public PriceInsightDto getPriceInsight(String commodity) {
         String comm = commodity != null && !commodity.isBlank() ? commodity.trim() : "Wheat";
@@ -226,7 +274,7 @@ public class IntelligenceService {
     public PriceOpportunityAlertDto getPriceOpportunityAlert(String commodity) {
         String comm = commodity != null && !commodity.isBlank() ? commodity.trim() : "Wheat";
         PriceInsightDto insight = getPriceInsight(comm);
-        double mspKg = MSP_BENCHMARKS.getOrDefault(comm.toLowerCase(), 22.75);
+        double mspKg = getMsp(comm);
         double currentRate = insight != null ? insight.getCurrentPrice() : mspKg + 2.0;
         double avg30 = insight != null ? insight.getAverage30Days() : mspKg;
         double changePct = avg30 > 0 ? Math.round(((currentRate - avg30) / avg30) * 100.0) : 0.0;

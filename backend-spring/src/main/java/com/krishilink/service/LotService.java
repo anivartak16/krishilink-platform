@@ -31,17 +31,7 @@ public class LotService {
             throw new BadRequestException("Commodity, quantity, and expected price are required");
         }
 
-        Quality quality = null;
-        if (dto.getGrade() != null) {
-            quality = Quality.builder()
-                    .grade(dto.getGrade())
-                    .moisture(dto.getMoisture() != null ? dto.getMoisture() : 11.5)
-                    .foreignMatter(dto.getForeignMatter() != null ? dto.getForeignMatter() : 0.8)
-                    .damagedPercentage(dto.getDamagedPercentage() != null ? dto.getDamagedPercentage() : 1.0)
-                    .certification(dto.getCertification())
-                    .build();
-            quality = qualityRepository.save(quality);
-        }
+        Quality quality = buildQualityWithGradeDefaults(dto);
 
         String location = dto.getLocation() != null ? dto.getLocation() : owner.getLocation();
         List<Double> coords;
@@ -153,6 +143,15 @@ public class LotService {
         if (dto.getAvailableUntil() != null) lot.setAvailableUntil(dto.getAvailableUntil());
         if (dto.getFarmingType() != null) lot.setFarmingType(dto.getFarmingType());
 
+        // Update self-declared quality only if lot is not already verified by KVK
+        if (dto.getGrade() != null && (lot.getQuality() == null || !"VERIFIED".equalsIgnoreCase(lot.getQuality().getInspectionStatus()))) {
+            if (lot.getQuality() == null) {
+                lot.setQuality(buildQualityWithGradeDefaults(dto));
+            } else {
+                updateQualityWithGradeDefaults(lot.getQuality(), dto);
+            }
+        }
+
         return lotRepository.save(lot);
     }
 
@@ -189,5 +188,62 @@ public class LotService {
             qualityRepository.save(lot.getQuality());
         }
         return lotRepository.save(lot);
+    }
+
+    /**
+     * Builds a Quality entity applying agricultural FAQ/grade-dependent standard baselines
+     * when the farmer hasn't entered laboratory test values.
+     */
+    private Quality buildQualityWithGradeDefaults(LotDto dto) {
+        if (dto.getGrade() == null && dto.getMoisture() == null &&
+                dto.getForeignMatter() == null && dto.getDamagedPercentage() == null) {
+            return null;
+        }
+
+        String rawGrade = dto.getGrade() != null ? dto.getGrade().trim() : "FAQ";
+        GradeBaseline baseline = getGradeBaseline(rawGrade);
+
+        Quality quality = Quality.builder()
+                .grade(rawGrade)
+                .moisture(dto.getMoisture() != null ? dto.getMoisture() : baseline.moisture)
+                .foreignMatter(dto.getForeignMatter() != null ? dto.getForeignMatter() : baseline.foreignMatter)
+                .damagedPercentage(dto.getDamagedPercentage() != null ? dto.getDamagedPercentage() : baseline.damagedPercentage)
+                .certification(dto.getCertification())
+                .inspectionStatus("PENDING")
+                .build();
+
+        return qualityRepository.save(quality);
+    }
+
+    private void updateQualityWithGradeDefaults(Quality quality, LotDto dto) {
+        String rawGrade = dto.getGrade() != null ? dto.getGrade().trim() : quality.getGrade();
+        GradeBaseline baseline = getGradeBaseline(rawGrade);
+
+        quality.setGrade(rawGrade);
+        quality.setMoisture(dto.getMoisture() != null ? dto.getMoisture() : baseline.moisture);
+        quality.setForeignMatter(dto.getForeignMatter() != null ? dto.getForeignMatter() : baseline.foreignMatter);
+        quality.setDamagedPercentage(dto.getDamagedPercentage() != null ? dto.getDamagedPercentage() : baseline.damagedPercentage);
+        if (dto.getCertification() != null) quality.setCertification(dto.getCertification());
+        qualityRepository.save(quality);
+    }
+
+    private record GradeBaseline(double moisture, double foreignMatter, double damagedPercentage) {}
+
+    private GradeBaseline getGradeBaseline(String rawGrade) {
+        String normalized = rawGrade != null ? rawGrade.toUpperCase().replace("-", "_").replace(" ", "_") : "FAQ";
+
+        if (normalized.contains("GRADE_A") || normalized.equals("A") || normalized.contains("PREMIUM") || normalized.contains("SUPERIOR")) {
+            // Grade A: Cleanest, low moisture, minimal defects
+            return new GradeBaseline(11.0, 0.5, 0.5);
+        } else if (normalized.contains("GRADE_B") || normalized.equals("B") || normalized.contains("MEDIUM")) {
+            // Grade B: Good standard commercial grade
+            return new GradeBaseline(12.0, 1.2, 2.0);
+        } else if (normalized.contains("GRADE_C") || normalized.equals("C") || normalized.contains("LOW")) {
+            // Grade C: Higher moisture tolerance, more foreign matter and damaged grain
+            return new GradeBaseline(13.5, 2.5, 4.0);
+        } else {
+            // FAQ (Fair Average Quality) / Default Mandi Standard
+            return new GradeBaseline(12.0, 1.0, 1.5);
+        }
     }
 }
