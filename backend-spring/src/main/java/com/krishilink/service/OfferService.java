@@ -1,5 +1,9 @@
 package com.krishilink.service;
 
+import com.krishilink.util.Money;
+
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.krishilink.dto.OfferDto;
 import com.krishilink.entity.*;
@@ -45,20 +49,21 @@ public class OfferService {
             throw new BadRequestException("This lot is not open for offers");
         }
         if (dto.getQuantity() == null || dto.getQuantity() <= 0
-                || dto.getPricePerUnit() == null || dto.getPricePerUnit() <= 0) {
+                || dto.getPricePerUnit() == null || dto.getPricePerUnit().signum() <= 0) {
             throw new BadRequestException("Quantity and price per unit must be greater than zero");
         }
         if (lot.getRemainingQuantity() < dto.getQuantity()) {
             throw new BadRequestException("Requested quantity exceeds available stock (" + lot.getRemainingQuantity() + " kg)");
         }
 
-        double totalAmount = dto.getQuantity() * dto.getPricePerUnit();
+        BigDecimal pricePerUnit = Money.of(dto.getPricePerUnit());
+        BigDecimal totalAmount = Money.total(pricePerUnit, dto.getQuantity());
 
         Offer offer = Offer.builder()
                 .lot(lot)
                 .buyer(buyer)
                 .quantity(dto.getQuantity())
-                .pricePerUnit(dto.getPricePerUnit())
+                .pricePerUnit(pricePerUnit)
                 .totalAmount(totalAmount)
                 .message(dto.getMessage())
                 .validUntil(dto.getValidUntil())

@@ -1,5 +1,9 @@
 package com.krishilink.controller;
 
+import com.krishilink.util.Money;
+
+import java.math.BigDecimal;
+
 import com.krishilink.dto.ApiResponse;
 import com.krishilink.entity.*;
 import com.krishilink.enums.DemandStatus;
@@ -222,8 +226,8 @@ public class FpoController {
         Long lotId = body.get("lotId") != null ? Long.valueOf(body.get("lotId").toString()) : null;
         Lot lot = lotId != null ? lotRepository.findById(lotId).orElse(null) : null;
 
-        double price = body.get("proposedPrice") != null ?
-                Double.parseDouble(body.get("proposedPrice").toString()) : demand.getMaxPrice();
+        BigDecimal price = Money.of(body.get("proposedPrice") != null ?
+                new BigDecimal(body.get("proposedPrice").toString()) : BigDecimal.valueOf(demand.getMaxPrice()));
         double qty = body.get("proposedQuantity") != null ?
                 Double.parseDouble(body.get("proposedQuantity").toString()) : demand.getRequiredQuantity();
 
@@ -232,7 +236,7 @@ public class FpoController {
                 .buyer(demand.getBuyer())
                 .quantity(qty)
                 .pricePerUnit(price)
-                .totalAmount(qty * price)
+                .totalAmount(Money.total(price, qty))
                 .message(body.get("message") != null ? body.get("message").toString() :
                         "FPO Supply Proposal from " + principal.getUser().getName())
                 .status(OfferStatus.PENDING)

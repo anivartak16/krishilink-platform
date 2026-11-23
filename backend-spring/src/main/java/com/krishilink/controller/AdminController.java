@@ -1,5 +1,7 @@
 package com.krishilink.controller;
 
+import java.math.BigDecimal;
+
 import com.krishilink.dto.ApiResponse;
 import com.krishilink.entity.User;
 import com.krishilink.enums.VerificationStatus;
@@ -96,7 +98,7 @@ public class AdminController {
                 .collect(java.util.stream.Collectors.groupingBy(t -> t.getStatus().name()));
         List<Map<String, Object>> txList = txByStatus.entrySet().stream()
                 .map(e -> {
-                    double sum = e.getValue().stream().mapToDouble(t -> t.getAmount() != null ? t.getAmount() : 0.0).sum();
+                    BigDecimal sum = e.getValue().stream().map(t -> t.getAmount() != null ? t.getAmount() : BigDecimal.ZERO).reduce(BigDecimal.ZERO, BigDecimal::add);
                     return Map.<String, Object>of("_id", e.getKey(), "count", (long) e.getValue().size(), "value", sum);
                 })
                 .toList();
@@ -106,7 +108,7 @@ public class AdminController {
                 .collect(java.util.stream.Collectors.groupingBy(p -> p.getStatus().name()));
         List<Map<String, Object>> payList = payByStatus.entrySet().stream()
                 .map(e -> {
-                    double sum = e.getValue().stream().mapToDouble(p -> p.getAmount() != null ? p.getAmount() : 0.0).sum();
+                    BigDecimal sum = e.getValue().stream().map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO).reduce(BigDecimal.ZERO, BigDecimal::add);
                     return Map.<String, Object>of("_id", e.getKey(), "count", (long) e.getValue().size(), "value", sum);
                 })
                 .toList();

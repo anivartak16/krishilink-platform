@@ -1,5 +1,7 @@
 package com.krishilink.entity;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.krishilink.enums.TransactionStatus;
 import jakarta.persistence.*;
@@ -39,7 +41,8 @@ public class Transaction {
     private User seller;
 
     private Double quantity;
-    private Double amount;
+    @Column(precision = 14, scale = 2)
+    private BigDecimal amount;
 
     @Enumerated(EnumType.STRING)
     @Builder.Default
