@@ -396,8 +396,8 @@ export function TransactionsPage() {
                       </button>
                     )}
 
-                    {/* Buyer or Seller Action: Release Escrow & Complete */}
-                    {tItem.status === "DELIVERED" && (
+                    {/* Buyer Action: Release Escrow & Complete */}
+                    {isBuyer && tItem.status === "DELIVERED" && (
                       <button
                         type="button"
                         className="primary btn-complete"

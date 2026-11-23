@@ -4,14 +4,21 @@ import com.krishilink.dto.ApiResponse;
 import com.krishilink.entity.Notification;
 import com.krishilink.entity.Payment;
 import com.krishilink.entity.Transaction;
+import com.krishilink.entity.User;
 import com.krishilink.enums.PaymentStatus;
+import com.krishilink.enums.Role;
 import com.krishilink.enums.TransactionStatus;
+import com.krishilink.exception.BadRequestException;
 import com.krishilink.exception.ResourceNotFoundException;
 import com.krishilink.repository.NotificationRepository;
 import com.krishilink.repository.PaymentRepository;
 import com.krishilink.repository.TransactionRepository;
+import com.krishilink.security.UserPrincipal;
+import com.krishilink.service.TransactionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,15 +36,27 @@ public class PaymentController {
     private final NotificationRepository notificationRepository;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Payment>>> getPayments() {
-        return ResponseEntity.ok(ApiResponse.ok(paymentRepository.findAll()));
+    public ResponseEntity<ApiResponse<List<Payment>>> getPayments(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        User user = principal.getUser();
+        if (user.getRole() == Role.ADMIN) {
+            return ResponseEntity.ok(ApiResponse.ok(paymentRepository.findAll()));
+        }
+        List<Payment> payments = transactionRepository.findByUser(user).stream()
+                .map(paymentRepository::findByTransaction)
+                .flatMap(java.util.Optional::stream)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(payments));
     }
 
     @GetMapping("/{transactionId}")
     @Transactional
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getByTransactionId(@PathVariable Long transactionId) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getByTransactionId(
+            @PathVariable Long transactionId,
+            @AuthenticationPrincipal UserPrincipal principal) {
         Transaction tx = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
+        TransactionService.requireParticipantOrAdmin(tx, principal.getUser());
 
         Payment payment = paymentRepository.findByTransaction(tx).orElseGet(() -> {
             Payment p = Payment.builder()
@@ -58,9 +77,23 @@ public class PaymentController {
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> processPayment(
             @PathVariable Long transactionId,
+            @AuthenticationPrincipal UserPrincipal principal,
             @RequestBody(required = false) Map<String, Object> body) {
         Transaction tx = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
+        requireBuyerOrAdmin(tx, principal.getUser());
+
+        Payment existing = paymentRepository.findByTransaction(tx).orElse(null);
+        if (existing != null && (existing.getStatus() == PaymentStatus.PAID
+                || existing.getStatus() == PaymentStatus.REFUNDED)) {
+            return ResponseEntity.ok(ApiResponse.ok(
+                    Map.of("payment", existing, "transaction", tx),
+                    "Payment already processed"
+            ));
+        }
+        if (tx.getStatus() != TransactionStatus.CREATED) {
+            throw new BadRequestException("Payment is not allowed for a " + tx.getStatus() + " transaction");
+        }
 
         String method = body != null && body.get("paymentMethod") != null ?
                 body.get("paymentMethod").toString() : "UPI";
@@ -115,12 +148,23 @@ public class PaymentController {
 
     @PostMapping
     @Transactional
-    public ResponseEntity<ApiResponse<Payment>> createPayment(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<ApiResponse<Payment>> createPayment(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, Object> body) {
+        if (body.get("transactionId") == null) {
+            throw new BadRequestException("transactionId is required");
+        }
         Long txId = Long.valueOf(body.get("transactionId").toString());
         Transaction tx = transactionRepository.findById(txId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
+        requireBuyerOrAdmin(tx, principal.getUser());
 
-        Double amount = body.get("amount") != null ? Double.valueOf(body.get("amount").toString()) : tx.getAmount();
+        Payment current = paymentRepository.findByTransaction(tx).orElse(null);
+        if (current != null && current.getStatus() == PaymentStatus.PAID) {
+            throw new BadRequestException("Payment already completed for this transaction");
+        }
+
+        Double amount = tx.getAmount();
         String method = body.get("paymentMethod") != null ? body.get("paymentMethod").toString() : "Bank Transfer";
 
         Payment payment = paymentRepository.findByTransaction(tx).orElse(
@@ -145,7 +189,11 @@ public class PaymentController {
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
 
         if (body.containsKey("status")) {
-            payment.setStatus(PaymentStatus.valueOf(body.get("status").toUpperCase()));
+            try {
+                payment.setStatus(PaymentStatus.valueOf(body.get("status").toUpperCase().trim()));
+            } catch (IllegalArgumentException e) {
+                throw new BadRequestException("Invalid payment status");
+            }
             if (payment.getStatus() == PaymentStatus.PAID) {
                 payment.setPaidAt(LocalDateTime.now());
             }
@@ -156,5 +204,12 @@ public class PaymentController {
         payment = paymentRepository.save(payment);
 
         return ResponseEntity.ok(ApiResponse.ok(payment, "Payment status updated"));
+    }
+
+    private static void requireBuyerOrAdmin(Transaction tx, User user) {
+        boolean buyer = tx.getBuyer() != null && tx.getBuyer().getId().equals(user.getId());
+        if (!buyer && user.getRole() != Role.ADMIN) {
+            throw new AccessDeniedException("Only the buyer can pay for this transaction");
+        }
     }
 }

@@ -323,7 +323,7 @@ public class KrishiLinkIntegrationTests {
                 .andExpect(jsonPath("$.data.payment").exists())
                 .andExpect(jsonPath("$.data.transaction").exists());
 
-        // 2. Process payment
+        // 2. Seeded transaction 1 is already in transit, so it cannot be paid again
         Map<String, Object> payReq = Map.of(
                 "paymentMethod", "UPI",
                 "remarks", "Automated escrow settlement test"
@@ -333,9 +333,8 @@ public class KrishiLinkIntegrationTests {
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payReq)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.payment.status").value("PAID"));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
     }
 
     @Test

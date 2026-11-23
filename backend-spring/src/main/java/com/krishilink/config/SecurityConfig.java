@@ -66,8 +66,9 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         List<String> origins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
                 .toList();
-        configuration.setAllowedOriginPatterns(List.of("*"));
+        configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
@@ -103,7 +104,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/auth/kyc/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/prices/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/markets/**").permitAll()
-                        .requestMatchers("/api/marketPrice/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/marketPrice/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/lots/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/demands/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/predictions/**").permitAll()
@@ -112,6 +113,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/chat/**").permitAll()
                         // Role-specific
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/marketPrice/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/disputes/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/payments/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/inspections/**").hasAnyRole("KRISHI_KENDRA", "ADMIN")
                         // All others require authentication
                         .anyRequest().authenticated()
                 );
