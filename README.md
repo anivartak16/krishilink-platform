@@ -166,6 +166,8 @@ cd backend-spring
 mvn clean spring-boot:run
 ```
 
+The `local` profile reads `DB_PASSWORD` (defaults to `root`) and `JWT_SECRET` (defaults to a development-only key). The `prod` profile has no fallback for `DB_PASSWORD` or `JWT_SECRET`, so both must be set (plus `DB_URL`, `DB_USERNAME` and `CLIENT_URL` as needed).
+
 ---
 
 ### ⚛️ Starting the React Frontend
@@ -200,15 +202,15 @@ CREATE DATABASE IF NOT EXISTS krishilink_market CHARACTER SET utf8mb4 COLLATE ut
 
 ## 🔑 Demo Credentials
 
-The platform initializes with pre-configured demo users across all roles:
+With the `local` profile the platform seeds these demo users across all roles. The `prod` profile skips them unless `SEED_DEMO_DATA=true`, because the password is public:
 
 | Role | Email | Password | Sample Activities |
 | :--- | :--- | :--- | :--- |
-| **Farmer** | `farmer@krishilink.com` | `password123` | List produce lots, request KVK quality verification, accept buyer offers |
-| **Buyer** | `buyer@krishilink.com` | `password123` | Create procurement demands, view explainable matches, make offers, pay into escrow |
-| **FPO** | `fpo@krishilink.com` | `password123` | Manage farmer members, certify field e-KYC, aggregate produce into bulk lots |
-| **KVK Inspector**| `kvk@krishilink.com` | `password123` | Inspect crop quality, issue Grade A/B/C ratings, record moisture & foreign matter |
-| **Admin** | `admin@krishilink.com` | `password123` | System oversight, verify users, sync daily AGMARKNET mandi rates, resolve disputes |
+| **Farmer** | `farmer@krishilink.com` | `Demo@12345` | List produce lots, request KVK quality verification, accept buyer offers |
+| **Buyer** | `buyer@krishilink.com` | `Demo@12345` | Create procurement demands, view explainable matches, make offers, pay into escrow |
+| **FPO** | `fpo@krishilink.com` | `Demo@12345` | Manage farmer members, certify field e-KYC, aggregate produce into bulk lots |
+| **KVK Inspector**| `kvk@krishilink.com` | `Demo@12345` | Inspect crop quality, issue Grade A/B/C ratings, record moisture & foreign matter |
+| **Admin** | `admin@krishilink.com` | `Demo@12345` | System oversight, verify users, sync daily AGMARKNET mandi rates, resolve disputes |
 
 ---
 
@@ -256,7 +258,7 @@ mvn --file microservices/pom.xml test
 ```powershell
 mvn --file backend-spring/pom.xml test
 ```
-*Current Status: 15/15 Integration Tests Passing.*
+*Current Status: 23/23 Integration Tests Passing.*
 
 ### Verify Frontend Production Build
 ```powershell

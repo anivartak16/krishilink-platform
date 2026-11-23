@@ -7,7 +7,10 @@ import com.krishilink.enums.*;
 import com.krishilink.exception.BadRequestException;
 import com.krishilink.exception.ResourceNotFoundException;
 import com.krishilink.repository.*;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,24 +22,37 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class OfferService {
 
+    private static final java.util.Set<LotStatus> OFFERABLE_LOT_STATUSES = java.util.EnumSet.of(
+            LotStatus.AVAILABLE, LotStatus.PARTIALLY_SOLD, LotStatus.VERIFIED);
+
     private final OfferRepository offerRepository;
     private final LotRepository lotRepository;
     private final TransactionRepository transactionRepository;
     private final PaymentRepository paymentRepository;
     private final NotificationRepository notificationRepository;
     private final ObjectMapper objectMapper;
+    private final EntityManager entityManager;
 
     @Transactional
     public Offer createOffer(User buyer, OfferDto dto) {
         Lot lot = lotRepository.findById(dto.getLotId())
                 .orElseThrow(() -> new ResourceNotFoundException("Lot not found"));
 
+        if (lot.getOwner().getId().equals(buyer.getId())) {
+            throw new BadRequestException("You cannot make an offer on your own lot");
+        }
+        if (!OFFERABLE_LOT_STATUSES.contains(lot.getStatus())) {
+            throw new BadRequestException("This lot is not open for offers");
+        }
+        if (dto.getQuantity() == null || dto.getQuantity() <= 0
+                || dto.getPricePerUnit() == null || dto.getPricePerUnit() <= 0) {
+            throw new BadRequestException("Quantity and price per unit must be greater than zero");
+        }
         if (lot.getRemainingQuantity() < dto.getQuantity()) {
             throw new BadRequestException("Requested quantity exceeds available stock (" + lot.getRemainingQuantity() + " kg)");
         }
 
-        double totalAmount = dto.getTotalAmount() != null ?
-                dto.getTotalAmount() : dto.getQuantity() * dto.getPricePerUnit();
+        double totalAmount = dto.getQuantity() * dto.getPricePerUnit();
 
         Offer offer = Offer.builder()
                 .lot(lot)
@@ -76,10 +92,23 @@ public class OfferService {
                 .orElseThrow(() -> new ResourceNotFoundException("Offer not found with id: " + id));
     }
 
+    public Offer getOfferForUser(Long id, User user) {
+        Offer offer = getOfferById(id);
+        boolean buyer = offer.getBuyer() != null && offer.getBuyer().getId().equals(user.getId());
+        boolean seller = offer.getLot().getOwner().getId().equals(user.getId());
+        if (!buyer && !seller && user.getRole() != Role.ADMIN) {
+            throw new AccessDeniedException("Not a party to this offer");
+        }
+        return offer;
+    }
+
     @Transactional
     public Transaction acceptOffer(Long id, User user) {
         Offer offer = getOfferById(id);
         Lot lot = offer.getLot();
+        // Serialize acceptances per lot so stock checks see committed quantities.
+        entityManager.refresh(lot, LockModeType.PESSIMISTIC_WRITE);
+        entityManager.refresh(offer);
 
         if (!lot.getOwner().getId().equals(user.getId()) && user.getRole() != Role.ADMIN) {
             throw new BadRequestException("Only the seller can accept this offer");
@@ -157,6 +186,9 @@ public class OfferService {
 
         if (!lot.getOwner().getId().equals(user.getId()) && user.getRole() != Role.ADMIN) {
             throw new BadRequestException("Only the seller can reject this offer");
+        }
+        if (offer.getStatus() != OfferStatus.PENDING) {
+            throw new BadRequestException("Only pending offers can be rejected");
         }
 
         offer.setStatus(OfferStatus.REJECTED);

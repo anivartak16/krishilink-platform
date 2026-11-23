@@ -3,6 +3,7 @@ package com.krishilink.exception;
 import com.krishilink.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -38,6 +39,12 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail("Insufficient permission", "FORBIDDEN"));
     }
 
+    @ExceptionHandler(ConcurrencyFailureException.class)
+    public ResponseEntity<ApiResponse<Object>> handleConcurrentUpdate(ConcurrencyFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail("This record was changed by another request. Refresh and try again.", "CONFLICT"));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Object>> handleValidation(MethodArgumentNotValidException ex) {
         String msg = ex.getBindingResult().getFieldErrors().stream()
@@ -52,6 +59,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Object>> handleGeneral(Exception ex) {
         log.error("Unhandled exception: ", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.fail(ex.getMessage() != null ? ex.getMessage() : "Internal server error"));
+                .body(ApiResponse.fail("Internal server error"));
     }
 }

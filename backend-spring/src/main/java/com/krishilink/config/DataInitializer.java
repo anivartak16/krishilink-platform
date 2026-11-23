@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 
 @Component
 @RequiredArgsConstructor
@@ -34,9 +35,16 @@ public class DataInitializer implements CommandLineRunner {
     private final com.krishilink.repository.MspBenchmarkRepository mspBenchmarkRepository;
     private final PasswordEncoder passwordEncoder;
 
+    @Value("${krishilink.seed-demo-data:true}")
+    private boolean seedDemoData;
+
     @Override
     public void run(String... args) {
         ensureMspBenchmarks();
+        if (!seedDemoData) {
+            log.info("Demo data seeding disabled.");
+            return;
+        }
         if (userRepository.count() > 0) {
             ensureKvkUser();
             log.info("Database already initialized. Skipping seed.");

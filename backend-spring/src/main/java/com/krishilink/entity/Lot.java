@@ -28,6 +28,10 @@ public class Lot {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Version
+    @Column(columnDefinition = "bigint default 0")
+    private Long version;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "owner_id", nullable = false)
     private User owner;

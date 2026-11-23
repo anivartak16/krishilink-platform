@@ -42,6 +42,9 @@ public class AuthService {
         } catch (Exception e) {
             throw new BadRequestException("Invalid role specified");
         }
+        if (role == Role.ADMIN) {
+            throw new BadRequestException("Admin accounts cannot be self-registered");
+        }
 
         if (userRepository.existsByEmailIgnoreCase(req.getEmail().trim())) {
             throw new BadRequestException("Email already registered");

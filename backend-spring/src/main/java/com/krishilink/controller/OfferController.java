@@ -30,8 +30,10 @@ public class OfferController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<Offer>> getOfferById(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(offerService.getOfferById(id)));
+    public ResponseEntity<ApiResponse<Offer>> getOfferById(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(offerService.getOfferForUser(id, principal.getUser())));
     }
 
     @PostMapping
@@ -71,6 +73,6 @@ public class OfferController {
             Offer offer = offerService.rejectOffer(id, principal.getUser());
             return ResponseEntity.ok(ApiResponse.ok(offer, "Offer rejected"));
         }
-        return ResponseEntity.ok(ApiResponse.ok(offerService.getOfferById(id)));
+        return ResponseEntity.ok(ApiResponse.ok(offerService.getOfferForUser(id, principal.getUser())));
     }
 }

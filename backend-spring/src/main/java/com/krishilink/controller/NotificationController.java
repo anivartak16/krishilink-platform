@@ -34,6 +34,9 @@ public class NotificationController {
             @AuthenticationPrincipal UserPrincipal principal) {
         Notification notification = notificationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Notification not found"));
+        if (!notification.getUser().getId().equals(principal.getUser().getId())) {
+            throw new ResourceNotFoundException("Notification not found");
+        }
         notification.setRead(true);
         notification = notificationRepository.save(notification);
         return ResponseEntity.ok(ApiResponse.ok(notification));

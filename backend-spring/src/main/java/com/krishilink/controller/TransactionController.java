@@ -27,8 +27,10 @@ public class TransactionController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<Transaction>> getTransactionById(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(transactionService.getTransactionById(id)));
+    public ResponseEntity<ApiResponse<Transaction>> getTransactionById(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(transactionService.getTransactionForUser(id, principal.getUser())));
     }
 
     @PatchMapping("/{id}/status")
