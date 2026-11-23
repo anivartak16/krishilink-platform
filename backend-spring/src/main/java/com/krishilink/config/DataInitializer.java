@@ -1,5 +1,7 @@
 package com.krishilink.config;
 
+import java.math.BigDecimal;
+
 import com.krishilink.entity.*;
 import com.krishilink.enums.*;
 import com.krishilink.repository.*;
@@ -341,8 +343,8 @@ public class DataInitializer implements CommandLineRunner {
                 .lot(lot1)
                 .buyer(buyer)
                 .quantity(1000.0)
-                .pricePerUnit(25.2)
-                .totalAmount(25200.0)
+                .pricePerUnit(new BigDecimal("25.20"))
+                .totalAmount(new BigDecimal("25200.00"))
                 .message("Pickup arranged within two days via logistics provider.")
                 .validUntil(LocalDate.now().plusDays(5))
                 .status(OfferStatus.ACCEPTED)
@@ -357,7 +359,7 @@ public class DataInitializer implements CommandLineRunner {
                 .buyer(buyer)
                 .seller(farmer)
                 .quantity(1000.0)
-                .amount(25200.0)
+                .amount(new BigDecimal("25200.00"))
                 .status(TransactionStatus.IN_TRANSIT)
                 .eventsJson("[{\"status\":\"CREATED\",\"note\":\"Offer accepted and trade created\"},{\"status\":\"CONFIRMED\",\"note\":\"Seller confirmed dispatch\"},{\"status\":\"IN_TRANSIT\",\"note\":\"Pickup vehicle assigned\"}]")
                 .build();
@@ -366,7 +368,7 @@ public class DataInitializer implements CommandLineRunner {
 
         Payment pay1 = Payment.builder()
                 .transaction(tx1)
-                .amount(25200.0)
+                .amount(new BigDecimal("25200.00"))
                 .paymentMethod("Bank Transfer")
                 .status(PaymentStatus.PROCESSING)
                 .remarks("Escrow release after delivery")

@@ -1,5 +1,7 @@
 package com.krishilink.entity;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.krishilink.enums.OfferStatus;
 import jakarta.persistence.*;
@@ -34,10 +36,11 @@ public class Offer {
     @Column(nullable = false)
     private Double quantity;
 
-    @Column(nullable = false)
-    private Double pricePerUnit;
+    @Column(nullable = false, precision = 14, scale = 2)
+    private BigDecimal pricePerUnit;
 
-    private Double totalAmount;
+    @Column(precision = 14, scale = 2)
+    private BigDecimal totalAmount;
 
     @Column(columnDefinition = "TEXT")
     private String message;

@@ -1,5 +1,7 @@
 package com.krishilink.controller;
 
+import java.math.BigDecimal;
+
 import com.krishilink.dto.ApiResponse;
 import com.krishilink.entity.Notification;
 import com.krishilink.entity.Payment;
@@ -164,7 +166,7 @@ public class PaymentController {
             throw new BadRequestException("Payment already completed for this transaction");
         }
 
-        Double amount = tx.getAmount();
+        BigDecimal amount = tx.getAmount();
         String method = body.get("paymentMethod") != null ? body.get("paymentMethod").toString() : "Bank Transfer";
 
         Payment payment = paymentRepository.findByTransaction(tx).orElse(

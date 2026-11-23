@@ -1,5 +1,7 @@
 package com.krishilink.entity;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.krishilink.enums.PaymentStatus;
 import jakarta.persistence.*;
@@ -26,7 +28,8 @@ public class Payment {
     @JoinColumn(name = "transaction_id", unique = true)
     private Transaction transaction;
 
-    private Double amount;
+    @Column(precision = 14, scale = 2)
+    private BigDecimal amount;
 
     @Builder.Default
     private String paymentMethod = "Bank Transfer";

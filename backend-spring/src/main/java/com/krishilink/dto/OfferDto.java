@@ -1,5 +1,7 @@
 package com.krishilink.dto;
 
+import java.math.BigDecimal;
+
 import lombok.*;
 
 import java.time.LocalDate;
@@ -12,8 +14,8 @@ import java.time.LocalDate;
 public class OfferDto {
     private Long lotId;
     private Double quantity;
-    private Double pricePerUnit;
-    private Double totalAmount;
+    private BigDecimal pricePerUnit;
+    private BigDecimal totalAmount;
     private String message;
     private LocalDate validUntil;
 }

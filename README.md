@@ -186,6 +186,16 @@ Open your browser at **<http://localhost:5173>**.
 
 ---
 
+## 🗄️ Monolith Schema Migrations (Flyway)
+
+The monolith's schema lives in `backend-spring/src/main/resources/db/migration` and is applied by Flyway on startup; Hibernate runs with `ddl-auto=validate` and never alters tables.
+
+- A new, empty database gets every migration from `V1__baseline_schema.sql`.
+- An existing database created earlier by `ddl-auto=update` is baselined at V1 and only receives later migrations (e.g. `V2` converts offer, transaction and payment amounts to `DECIMAL(14,2)`).
+- Schema changes go in a new `V<n>__description.sql` file; never edit an applied migration.
+
+---
+
 ## 🛡️ Database Architecture (Database-Per-Service)
 
 For microservices, isolated database schemas are created automatically on MySQL via JDBC `createDatabaseIfNotExist=true`:
@@ -258,7 +268,7 @@ mvn --file microservices/pom.xml test
 ```powershell
 mvn --file backend-spring/pom.xml test
 ```
-*Current Status: 23/23 Integration Tests Passing.*
+*Current Status: 24/24 Integration Tests Passing.*
 
 ### Verify Frontend Production Build
 ```powershell

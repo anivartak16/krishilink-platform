@@ -152,6 +152,19 @@ class TradeSecurityIntegrationTests {
     }
 
     @Test
+    @DisplayName("Offer totals are exact decimal amounts")
+    void offerTotalIsExactDecimal() throws Exception {
+        long lotId = publishedLot(50.0);
+        mockMvc.perform(authed(post("/api/offers"), buyerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "lotId", lotId, "quantity", 3.0, "pricePerUnit", 0.1))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pricePerUnit").value(0.1))
+                .andExpect(jsonPath("$.data.totalAmount").value(0.3));
+    }
+
+    @Test
     @DisplayName("Sellers cannot bid on their own lots")
     void cannotOfferOnOwnLot() throws Exception {
         long lotId = publishedLot(50.0);
