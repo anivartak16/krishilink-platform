@@ -202,7 +202,7 @@ CREATE DATABASE IF NOT EXISTS krishilink_market CHARACTER SET utf8mb4 COLLATE ut
 
 ## 🔑 Demo Credentials
 
-The platform initializes with pre-configured demo users across all roles:
+With the `local` profile the platform seeds these demo users across all roles. The `prod` profile skips them unless `SEED_DEMO_DATA=true`, because the password is public:
 
 | Role | Email | Password | Sample Activities |
 | :--- | :--- | :--- | :--- |
