@@ -194,6 +194,13 @@ The monolith's schema lives in `backend-spring/src/main/resources/db/migration` 
 - An existing database created earlier by `ddl-auto=update` is baselined at V1 and only receives later migrations (e.g. `V2` converts offer, transaction and payment amounts to `DECIMAL(14,2)`).
 - Schema changes go in a new `V<n>__description.sql` file; never edit an applied migration.
 
+## 🧭 API Versioning, Caching and Actuator (Monolith)
+
+- **Versioning:** every monolith endpoint is served under `/api/v1/...`; the frontend uses `/api/v1`. The unversioned `/api/...` paths still work but return `Deprecation: true` and a `Link: </api/v1/...>; rel="successor-version"` header. Security rules cover both. The microservices gateway still serves only `/api`; point the frontend at it with `VITE_API_URL=http://localhost:5000/api`.
+- **Market-price cache:** price insight, sell advice, opportunity alerts and MSP lookups are cached per commodity (prices 10 min, MSP 6 h; `PRICE_CACHE_TTL`, `MSP_CACHE_TTL`). Updating an MSP evicts the MSP caches. The cache is in-memory by default; set `CACHE_TYPE=redis`, `REDIS_URL=redis://host:6379` and `REDIS_HEALTH_ENABLED=true` to use Redis. If Redis is unreachable, requests fall back to the database.
+- **Actuator:** only `/actuator/health` (plus `/liveness` and `/readiness`) and `/actuator/info` are exposed. Health details are shown to admins only; all other actuator endpoints return 404.
+- **Redis test:** `RedisMarketPriceCacheIntegrationTests` runs only when `REDIS_URL` is set, e.g. `docker run -d -p 6379:6379 redis:7-alpine` then `REDIS_URL=redis://localhost:6379 sh mvnw test`.
+
 ## 📬 Trade Events (Outbox) and Payment Idempotency
 
 - **Outbox:** offer placement, FPO proposals, offer acceptance and payment write a row to `outbox_events` in the same database transaction as the trade change. `OutboxRelay` polls pending rows (every 2s, `krishilink.outbox.poll-interval-ms`), creates the notification and marks the row published in one transaction. A rolled-back trade leaves no event; a failing event is retried up to `krishilink.outbox.max-attempts` (default 5) and keeps its last error.

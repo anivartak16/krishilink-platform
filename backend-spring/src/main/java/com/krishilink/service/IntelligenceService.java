@@ -6,7 +6,11 @@ import com.krishilink.entity.*;
 import com.krishilink.enums.LotStatus;
 import com.krishilink.repository.*;
 import com.krishilink.util.GeoUtils;
+import com.krishilink.config.CacheConfig;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -42,6 +46,7 @@ public class IntelligenceService {
      * Dynamically resolves official MSP from the database table msp_benchmarks,
      * falling back to static offline benchmarks if not yet populated.
      */
+    @Cacheable(cacheNames = CacheConfig.MSP, key = CacheConfig.COMMODITY_KEY)
     public double getMsp(String commodity) {
         if (commodity == null || commodity.isBlank()) return 22.75;
         String comm = commodity.toLowerCase().trim();
@@ -51,6 +56,7 @@ public class IntelligenceService {
                 .orElseGet(() -> MSP_BENCHMARKS.getOrDefault(comm, 22.75));
     }
 
+    @Cacheable(cacheNames = CacheConfig.MSP_BENCHMARKS, key = "'all'")
     public List<MspBenchmark> getAllMspBenchmarks() {
         List<MspBenchmark> list = mspBenchmarkRepository.findAllByOrderByCommodityAsc();
         if (list.isEmpty()) {
@@ -68,6 +74,11 @@ public class IntelligenceService {
         return list;
     }
 
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConfig.MSP, allEntries = true),
+            @CacheEvict(cacheNames = CacheConfig.MSP_BENCHMARKS, allEntries = true),
+            @CacheEvict(cacheNames = CacheConfig.PRICE_OPPORTUNITY, allEntries = true)
+    })
     public MspBenchmark saveOrUpdateMsp(String commodity, Double mspPerQuintal, Double mspPerKg, String season, Boolean isStatutory) {
         String comm = commodity.trim();
         Double perKg = mspPerKg != null ? mspPerKg : (mspPerQuintal != null ? Math.round((mspPerQuintal / 100.0) * 100.0) / 100.0 : getMsp(comm));
@@ -85,6 +96,7 @@ public class IntelligenceService {
         return mspBenchmarkRepository.save(benchmark);
     }
 
+    @Cacheable(cacheNames = CacheConfig.PRICE_INSIGHT, key = CacheConfig.COMMODITY_KEY, unless = "#result == null")
     public PriceInsightDto getPriceInsight(String commodity) {
         String comm = commodity != null && !commodity.isBlank() ? commodity.trim() : "Wheat";
         List<MarketPrice> rows = marketPriceRepository.findByCommodityIgnoreCaseOrderByPriceDateAsc(comm);
@@ -241,6 +253,7 @@ public class IntelligenceService {
         return list.stream().limit(10).toList();
     }
 
+    @Cacheable(cacheNames = CacheConfig.SELL_ADVICE, key = CacheConfig.COMMODITY_KEY)
     public SellAdviceDto getSellAdvice(String commodity) {
         PriceInsightDto insight = getPriceInsight(commodity);
         if (insight == null) {
@@ -271,6 +284,7 @@ public class IntelligenceService {
                 .build();
     }
 
+    @Cacheable(cacheNames = CacheConfig.PRICE_OPPORTUNITY, key = CacheConfig.COMMODITY_KEY)
     public PriceOpportunityAlertDto getPriceOpportunityAlert(String commodity) {
         String comm = commodity != null && !commodity.isBlank() ? commodity.trim() : "Wheat";
         PriceInsightDto insight = getPriceInsight(comm);
