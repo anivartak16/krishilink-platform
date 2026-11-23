@@ -29,6 +29,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Stream;
 
 @Configuration
 @EnableWebSecurity
@@ -42,6 +43,13 @@ public class SecurityConfig {
 
     @Value("${krishilink.cors.allowed-origins:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173}")
     private String allowedOrigins;
+
+    /** Expands "/x" into "/api/x" and "/api/v1/x" so both API versions share one rule. */
+    private static String[] api(String... paths) {
+        return Arrays.stream(paths)
+                .flatMap(path -> Stream.of("/api" + path, "/api/v1" + path))
+                .toArray(String[]::new);
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -99,24 +107,27 @@ public class SecurityConfig {
                         })
                 )
                 .authorizeHttpRequests(auth -> auth
-                        // Public endpoints
-                        .requestMatchers("/", "/api/health").permitAll()
-                        .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/auth/kyc/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/prices/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/markets/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/marketPrice/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/lots/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/demands/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/predictions/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/storage/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/logistics/**").permitAll()
-                        .requestMatchers("/api/chat/**").permitAll()
+                        // Public endpoints (every /api pattern also covers /api/v1)
+                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
+                        .requestMatchers("/").permitAll()
+                        .requestMatchers(api("/health")).permitAll()
+                        .requestMatchers(api("/auth/login", "/auth/register", "/auth/logout", "/auth/kyc/**")).permitAll()
+                        .requestMatchers(HttpMethod.GET, api("/prices/**")).permitAll()
+                        .requestMatchers(HttpMethod.GET, api("/markets/**")).permitAll()
+                        .requestMatchers(HttpMethod.GET, api("/marketPrice/**")).permitAll()
+                        .requestMatchers(HttpMethod.GET, api("/lots/**")).permitAll()
+                        .requestMatchers(HttpMethod.GET, api("/demands/**")).permitAll()
+                        .requestMatchers(HttpMethod.GET, api("/predictions/**")).permitAll()
+                        .requestMatchers(HttpMethod.GET, api("/storage/**")).permitAll()
+                        .requestMatchers(HttpMethod.GET, api("/logistics/**")).permitAll()
+                        .requestMatchers(api("/chat/**")).permitAll()
                         // Role-specific
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/marketPrice/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PATCH, "/api/disputes/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PATCH, "/api/payments/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/inspections/**").hasAnyRole("KRISHI_KENDRA", "ADMIN")
+                        .requestMatchers(api("/admin/**")).hasRole("ADMIN")
+                        .requestMatchers(api("/marketPrice/**")).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, api("/disputes/**")).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, api("/payments/**")).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, api("/inspections/**")).hasAnyRole("KRISHI_KENDRA", "ADMIN")
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // All others require authentication
                         .anyRequest().authenticated()
                 );
