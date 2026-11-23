@@ -1,5 +1,8 @@
 package com.krishilink.controller;
 
+import com.krishilink.outbox.OutboxPublisher;
+import com.krishilink.outbox.TradeEvents;
+
 import com.krishilink.util.Money;
 
 import java.math.BigDecimal;
@@ -36,7 +39,7 @@ public class FpoController {
     private final FpoMembershipRepository fpoMembershipRepository;
     private final DemandRepository demandRepository;
     private final OfferRepository offerRepository;
-    private final NotificationRepository notificationRepository;
+    private final OutboxPublisher outboxPublisher;
     private final AuthService authService;
 
     @GetMapping("/members")
@@ -244,12 +247,10 @@ public class FpoController {
                 .build();
         offer = offerRepository.save(offer);
 
-        Notification notif = Notification.builder()
-                .user(demand.getBuyer())
-                .type("NEW_OFFER")
-                .message("Direct FPO Supply Proposal from " + principal.getUser().getName() + " for " + demand.getCommodity())
-                .build();
-        notificationRepository.save(notif);
+        outboxPublisher.publish("Offer", offer.getId(), TradeEvents.FPO_PROPOSAL_SENT, Map.of(
+                "buyerId", demand.getBuyer().getId(),
+                "fpoName", principal.getUser().getName(),
+                "commodity", demand.getCommodity()));
 
         return ResponseEntity.ok(ApiResponse.ok(offer, "Proposal sent to buyer successfully"));
     }

@@ -194,6 +194,11 @@ The monolith's schema lives in `backend-spring/src/main/resources/db/migration` 
 - An existing database created earlier by `ddl-auto=update` is baselined at V1 and only receives later migrations (e.g. `V2` converts offer, transaction and payment amounts to `DECIMAL(14,2)`).
 - Schema changes go in a new `V<n>__description.sql` file; never edit an applied migration.
 
+## 📬 Trade Events (Outbox) and Payment Idempotency
+
+- **Outbox:** offer placement, FPO proposals, offer acceptance and payment write a row to `outbox_events` in the same database transaction as the trade change. `OutboxRelay` polls pending rows (every 2s, `krishilink.outbox.poll-interval-ms`), creates the notification and marks the row published in one transaction. A rolled-back trade leaves no event; a failing event is retried up to `krishilink.outbox.max-attempts` (default 5) and keeps its last error.
+- **Idempotency-Key:** `POST /api/payments` and `POST /api/payments/{transactionId}/process` accept an optional `Idempotency-Key` header. A retry with the same key and body returns the stored response with `Idempotent-Replayed: true`; the same key with a different transaction or body returns `422`. Keys are scoped per user and purged after `krishilink.idempotency.ttl-hours` (default 24).
+
 ---
 
 ## 🛡️ Database Architecture (Database-Per-Service)

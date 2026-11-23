@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -31,6 +31,8 @@ export function PaymentPage() {
   const [activeTxn, setActiveTxn] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  // One Idempotency-Key per checkout attempt; reused only when a retry follows a network failure.
+  const idempotencyKeys = useRef({});
   const [paySuccess, setPaySuccess] = useState(null);
   const [error, setError] = useState("");
 
@@ -91,11 +93,17 @@ export function PaymentPage() {
         simulateFailure: simulateFail,
       };
 
-      const res = await api.post(`/payments/${activeTxn._id}/process`, payload);
+      const txnId = activeTxn._id;
+      idempotencyKeys.current[txnId] ||= crypto.randomUUID();
+      const res = await api.post(`/payments/${txnId}/process`, payload, {
+        headers: { "Idempotency-Key": idempotencyKeys.current[txnId] },
+      });
+      delete idempotencyKeys.current[txnId];
       setPaySuccess(res.data.data);
       setActivePayment(res.data.data.payment);
       setActiveTxn(res.data.data.transaction);
     } catch (err) {
+      if (err.response) delete idempotencyKeys.current[activeTxn._id];
       setError(
         err.response?.data?.message ||
           "Payment authorization failed. Please check payment credentials or retry."

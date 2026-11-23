@@ -1,5 +1,7 @@
 package com.krishilink.service;
 
+import com.krishilink.outbox.OutboxPublisher;
+import com.krishilink.outbox.TradeEvents;
 import com.krishilink.util.Money;
 
 import java.math.BigDecimal;
@@ -33,7 +35,7 @@ public class OfferService {
     private final LotRepository lotRepository;
     private final TransactionRepository transactionRepository;
     private final PaymentRepository paymentRepository;
-    private final NotificationRepository notificationRepository;
+    private final OutboxPublisher outboxPublisher;
     private final ObjectMapper objectMapper;
     private final EntityManager entityManager;
 
@@ -72,14 +74,11 @@ public class OfferService {
 
         offer = offerRepository.save(offer);
 
-        // Send notification to seller
-        Notification notification = Notification.builder()
-                .user(lot.getOwner())
-                .type("NEW_OFFER")
-                .message("New offer from " + buyer.getName() + " for " + dto.getQuantity() + " kg " + lot.getCommodity())
-                .read(false)
-                .build();
-        notificationRepository.save(notification);
+        outboxPublisher.publish("Offer", offer.getId(), TradeEvents.OFFER_PLACED, Map.of(
+                "sellerId", lot.getOwner().getId(),
+                "buyerName", buyer.getName(),
+                "quantity", offer.getQuantity(),
+                "commodity", lot.getCommodity()));
 
         return offer;
     }
@@ -172,14 +171,13 @@ public class OfferService {
                 .build();
         paymentRepository.save(payment);
 
-        // 5. Notifications
-        Notification buyerNotif = Notification.builder()
-                .user(offer.getBuyer())
-                .type("OFFER_ACCEPTED")
-                .message("Your offer for " + offer.getQuantity() + " kg " + lot.getCommodity() + " was accepted!")
-                .read(false)
-                .build();
-        notificationRepository.save(buyerNotif);
+        // 5. Event for notifications, committed with the trade
+        outboxPublisher.publish("Transaction", tx.getId(), TradeEvents.OFFER_ACCEPTED, Map.of(
+                "offerId", offer.getId(),
+                "buyerId", offer.getBuyer().getId(),
+                "sellerId", lot.getOwner().getId(),
+                "quantity", offer.getQuantity(),
+                "commodity", lot.getCommodity()));
 
         return tx;
     }

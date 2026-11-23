@@ -3,7 +3,6 @@ package com.krishilink.controller;
 import java.math.BigDecimal;
 
 import com.krishilink.dto.ApiResponse;
-import com.krishilink.entity.Notification;
 import com.krishilink.entity.Payment;
 import com.krishilink.entity.Transaction;
 import com.krishilink.entity.User;
@@ -12,10 +11,12 @@ import com.krishilink.enums.Role;
 import com.krishilink.enums.TransactionStatus;
 import com.krishilink.exception.BadRequestException;
 import com.krishilink.exception.ResourceNotFoundException;
-import com.krishilink.repository.NotificationRepository;
 import com.krishilink.repository.PaymentRepository;
 import com.krishilink.repository.TransactionRepository;
 import com.krishilink.security.UserPrincipal;
+import com.krishilink.outbox.OutboxPublisher;
+import com.krishilink.outbox.TradeEvents;
+import com.krishilink.service.IdempotencyService;
 import com.krishilink.service.TransactionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/payments")
@@ -35,7 +37,8 @@ public class PaymentController {
 
     private final PaymentRepository paymentRepository;
     private final TransactionRepository transactionRepository;
-    private final NotificationRepository notificationRepository;
+    private final OutboxPublisher outboxPublisher;
+    private final IdempotencyService idempotencyService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<Payment>>> getPayments(
@@ -77,14 +80,27 @@ public class PaymentController {
 
     @PostMapping("/{transactionId}/process")
     @Transactional
-    public ResponseEntity<ApiResponse<Map<String, Object>>> processPayment(
+    public ResponseEntity<?> processPayment(
             @PathVariable Long transactionId,
             @AuthenticationPrincipal UserPrincipal principal,
+            @RequestHeader(value = IdempotencyService.HEADER, required = false) String idempotencyKey,
             @RequestBody(required = false) Map<String, Object> body) {
+        User user = principal.getUser();
         Transaction tx = transactionRepository.findByIdForUpdate(transactionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
-        requireBuyerOrAdmin(tx, principal.getUser());
+        requireBuyerOrAdmin(tx, user);
 
+        String requestHash = idempotencyService.requestHash("POST /api/payments/" + transactionId + "/process", body);
+        Optional<ResponseEntity<String>> replay = idempotencyService.findReplay(user, idempotencyKey, requestHash);
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        ResponseEntity<ApiResponse<Map<String, Object>>> response = settle(tx, body);
+        idempotencyService.remember(user, idempotencyKey, requestHash, response);
+        return response;
+    }
+
+    private ResponseEntity<ApiResponse<Map<String, Object>>> settle(Transaction tx, Map<String, Object> body) {
         Payment existing = paymentRepository.findByTransaction(tx).orElse(null);
         if (existing != null && (existing.getStatus() == PaymentStatus.PAID
                 || existing.getStatus() == PaymentStatus.REFUNDED)) {
@@ -133,13 +149,11 @@ public class PaymentController {
         }
 
         if (tx.getSeller() != null) {
-            Notification notif = Notification.builder()
-                    .user(tx.getSeller())
-                    .type("PAYMENT_RECEIVED")
-                    .message("₹" + tx.getAmount() + " secured in KrishiLink Escrow for " +
-                            (tx.getLot() != null ? tx.getLot().getCommodity() : "order") + ". You can now arrange dispatch.")
-                    .build();
-            notificationRepository.save(notif);
+            outboxPublisher.publish("Transaction", tx.getId(), TradeEvents.PAYMENT_SECURED, Map.of(
+                    "paymentId", payment.getId(),
+                    "sellerId", tx.getSeller().getId(),
+                    "amount", tx.getAmount().toPlainString(),
+                    "commodity", tx.getLot() != null ? tx.getLot().getCommodity() : "order"));
         }
 
         return ResponseEntity.ok(ApiResponse.ok(Map.of(
@@ -150,16 +164,30 @@ public class PaymentController {
 
     @PostMapping
     @Transactional
-    public ResponseEntity<ApiResponse<Payment>> createPayment(
+    public ResponseEntity<?> createPayment(
             @AuthenticationPrincipal UserPrincipal principal,
+            @RequestHeader(value = IdempotencyService.HEADER, required = false) String idempotencyKey,
             @RequestBody Map<String, Object> body) {
         if (body.get("transactionId") == null) {
             throw new BadRequestException("transactionId is required");
         }
+        User user = principal.getUser();
         Long txId = Long.valueOf(body.get("transactionId").toString());
         Transaction tx = transactionRepository.findByIdForUpdate(txId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
-        requireBuyerOrAdmin(tx, principal.getUser());
+        requireBuyerOrAdmin(tx, user);
+
+        String requestHash = idempotencyService.requestHash("POST /api/payments", body);
+        Optional<ResponseEntity<String>> replay = idempotencyService.findReplay(user, idempotencyKey, requestHash);
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        ResponseEntity<ApiResponse<Payment>> response = initiate(tx, body);
+        idempotencyService.remember(user, idempotencyKey, requestHash, response);
+        return response;
+    }
+
+    private ResponseEntity<ApiResponse<Payment>> initiate(Transaction tx, Map<String, Object> body) {
 
         Payment current = paymentRepository.findByTransaction(tx).orElse(null);
         if (current != null && current.getStatus() == PaymentStatus.PAID) {
