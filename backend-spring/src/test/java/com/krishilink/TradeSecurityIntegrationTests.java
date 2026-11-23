@@ -194,6 +194,18 @@ class TradeSecurityIntegrationTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    @DisplayName("Public registration cannot create admin accounts")
+    void cannotSelfRegisterAsAdmin() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "name", "Mallory", "email", "mallory-" + System.nanoTime() + "@example.com",
+                                "password", "Secret@123", "phone", "9999999999",
+                                "location", "Indore", "role", "ADMIN"))))
+                .andExpect(status().isBadRequest());
+    }
+
     private long acceptedTransaction(double lotQuantity, double offerQuantity) throws Exception {
         long offerId = createOffer(publishedLot(lotQuantity), offerQuantity);
         return number(data(mockMvc.perform(authed(patch("/api/offers/" + offerId + "/accept"), farmerToken))
