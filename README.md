@@ -258,7 +258,7 @@ mvn --file microservices/pom.xml test
 ```powershell
 mvn --file backend-spring/pom.xml test
 ```
-*Current Status: 22/22 Integration Tests Passing.*
+*Current Status: 23/23 Integration Tests Passing.*
 
 ### Verify Frontend Production Build
 ```powershell

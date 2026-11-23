@@ -79,7 +79,7 @@ public class PaymentController {
             @PathVariable Long transactionId,
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestBody(required = false) Map<String, Object> body) {
-        Transaction tx = transactionRepository.findById(transactionId)
+        Transaction tx = transactionRepository.findByIdForUpdate(transactionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
         requireBuyerOrAdmin(tx, principal.getUser());
 
@@ -155,7 +155,7 @@ public class PaymentController {
             throw new BadRequestException("transactionId is required");
         }
         Long txId = Long.valueOf(body.get("transactionId").toString());
-        Transaction tx = transactionRepository.findById(txId)
+        Transaction tx = transactionRepository.findByIdForUpdate(txId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction not found"));
         requireBuyerOrAdmin(tx, principal.getUser());
 

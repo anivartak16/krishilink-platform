@@ -81,7 +81,9 @@ public class TransactionService {
 
     @Transactional
     public Transaction updateStatus(Long id, User user, String newStatus, String note) {
-        Transaction tx = getTransactionForUser(id, user);
+        Transaction tx = transactionRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction not found with id: " + id));
+        requireParticipantOrAdmin(tx, user);
 
         TransactionStatus status;
         try {
